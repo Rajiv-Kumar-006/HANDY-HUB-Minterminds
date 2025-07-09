@@ -74,17 +74,49 @@ exports.validatePasswordReset = [
 
 // Worker application validation
 exports.validateWorkerApplication = [
+  body('firstName')
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('First name must be between 2 and 50 characters'),
+  
+  body('lastName')
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Last name must be between 2 and 50 characters'),
+  
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email'),
+  
+  body('phone')
+    .isMobilePhone()
+    .withMessage('Please provide a valid phone number'),
+  
+  body('address')
+    .trim()
+    .isLength({ min: 10, max: 200 })
+    .withMessage('Address must be between 10 and 200 characters'),
+  
   body('services')
     .isArray({ min: 1 })
-    .withMessage('At least one service must be selected'),
+    .withMessage('At least one service must be selected')
+    .custom((services) => {
+      const validServices = ['cleaning', 'cooking', 'laundry'];
+      const invalidServices = services.filter(service => !validServices.includes(service));
+      if (invalidServices.length > 0) {
+        throw new Error(`Invalid services: ${invalidServices.join(', ')}`);
+      }
+      return true;
+    }),
   
   body('experience')
     .isIn(['0-1', '1-3', '3-5', '5-10', '10+'])
     .withMessage('Please select a valid experience range'),
   
   body('hourlyRate')
-    .isFloat({ min: 10, max: 500 })
-    .withMessage('Hourly rate must be between $10 and $500'),
+    .isFloat({ min: 10, max: 200 })
+    .withMessage('Hourly rate must be between $10 and $200'),
   
   body('availability')
     .isArray({ min: 1 })
@@ -93,7 +125,18 @@ exports.validateWorkerApplication = [
   body('bio')
     .trim()
     .isLength({ min: 50, max: 500 })
-    .withMessage('Bio must be between 50 and 500 characters')
+    .withMessage('Bio must be between 50 and 500 characters'),
+  
+  body('hasConvictions')
+    .optional()
+    .isBoolean()
+    .withMessage('Has convictions must be a boolean value'),
+  
+  body('convictionDetails')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Conviction details cannot exceed 1000 characters')
 ];
 
 // Booking creation validation
@@ -295,21 +338,4 @@ exports.validateStatusUpdate = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('Notes cannot exceed 500 characters')
-];
-
-
-
-const validateWorkerApplication = [
-  body('firstName').trim().notEmpty().withMessage('First name is required'),
-  body('lastName').trim().notEmpty().withMessage('Last name is required'),
-  body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
-  body('phone').trim().notEmpty().withMessage('Phone number is required'),
-  body('address').trim().notEmpty().withMessage('Address is required'),
-  body('services').isArray({ min: 1 }).withMessage('At least one service is required'),
-  body('experience').isIn(['0-1', '1-3', '3-5', '5-10', '10+']).withMessage('Valid experience level is required'),
-  body('hourlyRate').isFloat({ min: 10, max: 200 }).withMessage('Hourly rate must be between $10 and $200'),
-  body('availability').isArray({ min: 1 }).withMessage('At least one availability slot is required'),
-  body('bio').trim().isLength({ min: 50, max: 500 }).withMessage('Bio must be between 50 and 500 characters'),
-  body('hasConvictions').isBoolean().withMessage('hasConvictions must be a boolean'),
-  body('convictionDetails').if(body('hasConvictions').equals(true)).trim().notEmpty().withMessage('Conviction details are required if hasConvictions is true'),
 ];

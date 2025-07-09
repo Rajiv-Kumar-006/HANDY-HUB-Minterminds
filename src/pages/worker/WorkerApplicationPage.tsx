@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   User,
@@ -10,12 +10,26 @@ import {
   CheckCircle,
   AlertCircle,
   DollarSign,
+  Loader2,
+  X,
 } from 'lucide-react';
+import { workerService, WorkerApplicationData, WorkerApplication } from '../../services/workerService';
+import { serviceService, ServiceCategory } from '../../services/serviceService';
 
 const WorkerApplicationPage: React.FC = () => {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
-  const [formData, setFormData] = useState({
+  const [loading, setLoading] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [existingApplication, setExistingApplication] = useState<WorkerApplication | null>(null);
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+
+  const [formData, setFormData] = useState<WorkerApplicationData & {
+    idDocument: File | null;
+    certifications: File[];
+  }>({
     // Personal Information
     firstName: '',
     lastName: '',
@@ -24,29 +38,25 @@ const WorkerApplicationPage: React.FC = () => {
     address: '',
 
     // Professional Information
-    services: [] as string[],
+    services: [],
     experience: '',
     hourlyRate: '',
-    availability: [] as string[],
+    availability: [],
     bio: '',
 
     // Documents
-    idDocument: null as File | null,
-    certifications: [] as File[],
+    idDocument: null,
+    certifications: [],
 
     // Background Check
     hasConvictions: false,
     convictionDetails: ''
   });
 
-  const services = [
-    'House Cleaning', 'Deep Cleaning', 'Office Cleaning',
-    'Plumbing', 'Electrical Work', 'HVAC',
-    'Gardening', 'Landscaping', 'Lawn Care',
-    'Handyman Services', 'Furniture Assembly', 'Painting',
-    'Cooking', 'Meal Prep', 'Catering',
-    'Pet Care', 'House Sitting', 'Elderly Care'
-  ];
+  const [uploadedDocuments, setUploadedDocuments] = useState({
+    idDocument: null as { url: string; originalName: string } | null,
+    certifications: [] as Array<{ url: string; originalName: string; name: string }>
+  });
 
   const availabilityOptions = [
     'Monday Morning', 'Monday Afternoon', 'Monday Evening',
@@ -57,6 +67,79 @@ const WorkerApplicationPage: React.FC = () => {
     'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening',
     'Sunday Morning', 'Sunday Afternoon', 'Sunday Evening'
   ];
+
+  // Load existing application and service categories on mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+
+        // Load service categories
+        const categoriesResponse = await serviceService.getServiceCategories();
+        if (categoriesResponse.success) {
+          setServiceCategories(categoriesResponse.data);
+        }
+
+        // Try to load existing application
+        try {
+          const applicationResponse = await workerService.getMyApplication();
+          if (applicationResponse.success) {
+            const app = applicationResponse.data;
+            setExistingApplication(app);
+
+            // Pre-fill form with existing data
+            setFormData(prev => ({
+              ...prev,
+              firstName: app.firstName || '',
+              lastName: app.lastName || '',
+              email: app.email || '',
+              phone: app.phone || '',
+              address: app.address || '',
+              services: app.services || [],
+              experience: app.experience || '',
+              hourlyRate: app.hourlyRate?.toString() || '',
+              availability: app.availability || [],
+              bio: app.bio || '',
+              hasConvictions: app.backgroundCheck?.hasConvictions || false,
+              convictionDetails: app.backgroundCheck?.convictionDetails || ''
+            }));
+
+            // Set uploaded documents
+            if (app.documents?.idDocument) {
+              setUploadedDocuments(prev => ({
+                ...prev,
+                idDocument: {
+                  url: app.documents.idDocument!.url,
+                  originalName: app.documents.idDocument!.originalName
+                }
+              }));
+            }
+
+            if (app.documents?.certifications) {
+              setUploadedDocuments(prev => ({
+                ...prev,
+                certifications: app.documents.certifications.map(cert => ({
+                  url: cert.url,
+                  originalName: cert.originalName,
+                  name: cert.name
+                }))
+              }));
+            }
+          }
+        } catch (appError) {
+          // No existing application found, which is fine for new applications
+          console.log('No existing application found');
+        }
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError('Failed to load application data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   const handleServiceToggle = (service: string) => {
     setFormData(prev => ({
@@ -76,27 +159,145 @@ const WorkerApplicationPage: React.FC = () => {
     }));
   };
 
-  const handleFileUpload = (field: string, file: File) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: file
-    }));
+  const handleFileUpload = async (field: 'idDocument' | 'certifications', file: File) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const documentType = field === 'idDocument' ? 'idDocument' : 'certification';
+      const response = await workerService.uploadDocument(file, documentType);
+
+      if (response.success) {
+        if (field === 'idDocument') {
+          setUploadedDocuments(prev => ({
+            ...prev,
+            idDocument: {
+              url: response.data.url,
+              originalName: response.data.originalName
+            }
+          }));
+          setFormData(prev => ({ ...prev, idDocument: file }));
+        } else {
+          setUploadedDocuments(prev => ({
+            ...prev,
+            certifications: [
+              ...prev.certifications,
+              {
+                url: response.data.url,
+                originalName: response.data.originalName,
+                name: file.name.split('.')[0]
+              }
+            ]
+          }));
+          setFormData(prev => ({
+            ...prev,
+            certifications: [...prev.certifications, file]
+          }));
+        }
+        setSuccess('Document uploaded successfully!');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to upload document');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async () => {
-    // Simulate API submission
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    alert('Application submitted successfully! We will review your application and get back to you within 2-3 business days.');
-    navigate('/');
+    try {
+      setSubmitLoading(true);
+      setError(null);
+
+      // Validate required documents
+      if (!uploadedDocuments.idDocument) {
+        setError('ID document is required before submission');
+        return;
+      }
+
+      // Submit application for review
+      const response = await workerService.submitForReview();
+
+      if (response.success) {
+        setSuccess('Application submitted successfully! We will review your application and get back to you within 2-3 business days.');
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 3000);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to submit application');
+    } finally {
+      setSubmitLoading(false);
+    }
   };
 
-  const nextStep = () => {
+  const saveProgress = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const applicationData: WorkerApplicationData = {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        services: formData.services,
+        experience: formData.experience,
+        hourlyRate: formData.hourlyRate,
+        availability: formData.availability,
+        bio: formData.bio,
+        hasConvictions: formData.hasConvictions,
+        convictionDetails: formData.convictionDetails
+      };
+
+      let response;
+      if (existingApplication) {
+        response = await workerService.updateApplication(applicationData);
+      } else {
+        response = await workerService.submitApplication(applicationData);
+        // Reload application data after creation
+        const newApp = await workerService.getMyApplication();
+        if (newApp.success) {
+          setExistingApplication(newApp.data);
+        }
+      }
+
+      if (response.success) {
+        setSuccess('Progress saved successfully!');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to save progress');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const nextStep = async () => {
+    if (currentStep === 1 || currentStep === 2) {
+      await saveProgress();
+    }
     if (currentStep < 4) setCurrentStep(currentStep + 1);
   };
 
   const prevStep = () => {
     if (currentStep > 1) setCurrentStep(currentStep - 1);
   };
+
+  const clearMessage = () => {
+    setError(null);
+    setSuccess(null);
+  };
+
+  if (loading && !existingApplication) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Loading application...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -105,7 +306,32 @@ const WorkerApplicationPage: React.FC = () => {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Become a HandyHub Worker</h1>
           <p className="text-xl text-gray-600">Join our network of trusted professionals</p>
+          {existingApplication && (
+            <div className="mt-4 inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+              Status: {existingApplication.applicationStatus.charAt(0).toUpperCase() + existingApplication.applicationStatus.slice(1)}
+            </div>
+          )}
         </div>
+
+        {/* Error/Success Messages */}
+        {(error || success) && (
+          <div className={`mb-6 p-4 rounded-lg flex items-center justify-between ${error ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'
+            }`}>
+            <div className="flex items-center">
+              {error ? (
+                <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
+              ) : (
+                <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
+              )}
+              <span className={error ? 'text-red-800' : 'text-green-800'}>
+                {error || success}
+              </span>
+            </div>
+            <button onClick={clearMessage} className="text-gray-400 hover:text-gray-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Progress Bar */}
         <div className="mb-8">
@@ -113,8 +339,8 @@ const WorkerApplicationPage: React.FC = () => {
             {[1, 2, 3, 4].map(step => (
               <div key={step} className="flex items-center">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${step <= currentStep
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-600'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-600'
                   }`}>
                   {step < currentStep ? <CheckCircle className="w-6 h-6" /> : step}
                 </div>
@@ -238,16 +464,19 @@ const WorkerApplicationPage: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-3">
                     Services You Offer * (Select all that apply)
                   </label>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {services.map(service => (
-                      <label key={service} className="flex items-center">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {serviceCategories.map(category => (
+                      <label key={category.name} className="flex items-center p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
                         <input
                           type="checkbox"
-                          checked={formData.services.includes(service)}
-                          onChange={() => handleServiceToggle(service)}
+                          checked={formData.services.includes(category.name)}
+                          onChange={() => handleServiceToggle(category.name)}
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="ml-2 text-sm text-gray-700">{service}</span>
+                        <div className="ml-3">
+                          <span className="text-sm font-medium text-gray-900">{category.label}</span>
+                          <p className="text-xs text-gray-500">{category.description}</p>
+                        </div>
                       </label>
                     ))}
                   </div>
@@ -314,7 +543,7 @@ const WorkerApplicationPage: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Professional Bio *
+                    Professional Bio * (Minimum 50 characters)
                   </label>
                   <textarea
                     value={formData.bio}
@@ -323,7 +552,11 @@ const WorkerApplicationPage: React.FC = () => {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Tell us about your experience, skills, and what makes you a great service provider..."
                     required
+                    minLength={50}
                   />
+                  <p className="text-sm text-gray-500 mt-1">
+                    {formData.bio.length}/50 characters minimum
+                  </p>
                 </div>
               </div>
             </div>
@@ -355,8 +588,8 @@ const WorkerApplicationPage: React.FC = () => {
                         Choose File
                       </span>
                     </label>
-                    {formData.idDocument && (
-                      <p className="mt-2 text-sm text-green-600">✓ {formData.idDocument.name}</p>
+                    {uploadedDocuments.idDocument && (
+                      <p className="mt-2 text-sm text-green-600">✓ {uploadedDocuments.idDocument.originalName}</p>
                     )}
                   </div>
                 </div>
@@ -372,15 +605,7 @@ const WorkerApplicationPage: React.FC = () => {
                     <input
                       type="file"
                       accept=".png,.jpg,.jpeg,.pdf"
-                      multiple
-                      onChange={(e) => {
-                        if (e.target.files) {
-                          setFormData(prev => ({
-                            ...prev,
-                            certifications: Array.from(e.target.files!)
-                          }));
-                        }
-                      }}
+                      onChange={(e) => e.target.files && handleFileUpload('certifications', e.target.files[0])}
                       className="hidden"
                       id="cert-upload"
                     />
@@ -389,10 +614,10 @@ const WorkerApplicationPage: React.FC = () => {
                         Choose Files
                       </span>
                     </label>
-                    {formData.certifications.length > 0 && (
+                    {uploadedDocuments.certifications.length > 0 && (
                       <div className="mt-2">
-                        {formData.certifications.map((file, index) => (
-                          <p key={index} className="text-sm text-green-600">✓ {file.name}</p>
+                        {uploadedDocuments.certifications.map((cert, index) => (
+                          <p key={index} className="text-sm text-green-600">✓ {cert.originalName}</p>
                         ))}
                       </div>
                     )}
@@ -464,13 +689,22 @@ const WorkerApplicationPage: React.FC = () => {
                   <h3 className="font-semibold text-gray-900 mb-3">Documents</h3>
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center">
-                      <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
-                      <span>Government ID uploaded</span>
+                      {uploadedDocuments.idDocument ? (
+                        <>
+                          <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
+                          <span>Government ID uploaded: {uploadedDocuments.idDocument.originalName}</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                          <span className="text-red-600">Government ID required</span>
+                        </>
+                      )}
                     </div>
-                    {formData.certifications.length > 0 && (
+                    {uploadedDocuments.certifications.length > 0 && (
                       <div className="flex items-center">
                         <CheckCircle className="w-4 h-4 text-green-600 mr-2" />
-                        <span>{formData.certifications.length} certification(s) uploaded</span>
+                        <span>{uploadedDocuments.certifications.length} certification(s) uploaded</span>
                       </div>
                     )}
                   </div>
@@ -502,15 +736,19 @@ const WorkerApplicationPage: React.FC = () => {
             {currentStep < 4 ? (
               <button
                 onClick={nextStep}
-                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-teal-600 text-white rounded-lg hover:from-blue-700 hover:to-teal-700 transition-all duration-200"
+                disabled={loading}
+                className="px-6 py-3 bg-gradient-to-r from-blue-600 to-teal-600 text-white rounded-lg hover:from-blue-700 hover:to-teal-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
               >
+                {loading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
                 Next
               </button>
             ) : (
               <button
                 onClick={handleSubmit}
-                className="px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-200"
+                disabled={submitLoading || !uploadedDocuments.idDocument}
+                className="px-6 py-3 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
               >
+                {submitLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
                 Submit Application
               </button>
             )}

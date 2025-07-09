@@ -19,7 +19,7 @@ import VerifyEmailPage from './pages/auth/VerifyEmailPage';
 
 function App() {
   return (
-    <AuthProvider>
+    <AuthProvider> 
       <LocationProvider>
         <div className="min-h-screen bg-gray-50">
           <Navbar />

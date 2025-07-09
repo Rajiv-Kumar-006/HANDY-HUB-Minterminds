@@ -118,7 +118,7 @@ const RegisterPage: React.FC = () => {
             </div>
 
             {/* Role */}
-            <div>
+            {/* <div>
               <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">Account Type</label>
               <select
                 id="role"
@@ -130,7 +130,7 @@ const RegisterPage: React.FC = () => {
                 <option value="user">Customer</option>
                 <option value="worker">Service Provider</option>
               </select>
-            </div>
+            </div> */}
 
             {/* Password */}
             <div>

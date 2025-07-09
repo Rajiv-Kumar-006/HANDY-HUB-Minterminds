@@ -37,6 +37,7 @@ const workerSchema = new mongoose.Schema(
       {
         type: String,
         required: true,
+        enum: ["cleaning", "cooking", "laundry"] // Updated to match your service categories
       },
     ],
     experience: {
@@ -101,7 +102,7 @@ const workerSchema = new mongoose.Schema(
         type: String,
         default: '',
         required: function() {
-          return this.backgroundCheck.hasConvictions;
+          return this.backgroundCheck && this.backgroundCheck.hasConvictions;
         }
       },
       status: {
@@ -214,24 +215,20 @@ workerSchema.pre('save', function(next) {
     // Validate required fields for submission
     const requiredFields = ['firstName', 'lastName', 'email', 'phone', 'address', 'bio'];
     const missingFields = requiredFields.filter(field => !this[field]);
-    
+
     if (missingFields.length > 0) {
       return next(new Error(`Missing required fields: ${missingFields.join(', ')}`));
     }
-    
+
     if (!this.services || this.services.length === 0) {
       return next(new Error('At least one service must be selected'));
     }
-    
+
     if (!this.availability || this.availability.length === 0) {
       return next(new Error('At least one availability slot must be selected'));
     }
-    
-    if (!this.documents.idDocument || !this.documents.idDocument.url) {
-      return next(new Error('ID document is required'));
-    }
   }
-  
+
   next();
 });
 
