@@ -1,553 +1,943 @@
+// controllers/workerApplicationController.js
 
-const Worker = require('../models/Worker');
-const User = require('../models/User');
-const Booking = require('../models/Booking');
-const { validationResult } = require('express-validator');
-const emailService = require('../services/emailService');
+const Worker = require("../models/Worker");
+const cloudinary = require("cloudinary").v2;
+const multer = require("multer");
+const { Readable } = require("stream");
 
-// @desc    Submit worker application
-// @route   POST /api/workers/apply
-// @access  Private
-exports.applyAsWorker = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation errors',
-        errors: errors.array()
-      });
-    }
+// Configure Cloudinary (assume this is done in a config file, but shown here for completeness)
+// cloudinary.config({
+//   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+//   api_key: process.env.CLOUDINARY_API_KEY,
+//   api_secret: process.env.CLOUDINARY_API_SECRET,
+// });
 
-    // Check if user already has a worker application
-    const existingWorker = await Worker.findOne({ user: req.user.id });
-    if (existingWorker) {
-      return res.status(400).json({
-        success: false,
-        message: 'Worker application already exists',
-        applicationStatus: existingWorker.applicationStatus
-      });
-    }
+// Application Status Constants
+const ApplicationStatus = {
+  INCOMPLETE: "incomplete",
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+};
 
-    const {
-      firstName,
-      lastName,
-      email,
-      phone,
-      address,
-      services,
-      experience,
-      hourlyRate,
-      availability,
-      bio,
-      hasConvictions,
-      convictionDetails
-    } = req.body;
-
-    // Create worker application
-    const workerData = {
-      user: req.user.id,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      address: address.trim(),
-      services,
-      experience,
-      hourlyRate: parseFloat(hourlyRate),
-      availability,
-      bio: bio.trim(),
-      backgroundCheck: {
-        hasConvictions: hasConvictions || false,
-        convictionDetails: hasConvictions ? convictionDetails : ''
+// Reusable function to upload file to Cloudinary
+const uploadToCloudinary = async (file, folder = "worker_documents") => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: "auto",
+        folder,
       },
-      applicationStatus: 'pending',
-      submittedAt: new Date()
+      (error, result) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(result);
+        }
+      }
+    );
+    const readableStream = new Readable();
+    readableStream.push(file.buffer);
+    readableStream.push(null);
+    readableStream.pipe(stream);
+  });
+};
+
+// Reusable function to validate file
+const validateFile = (
+  file,
+  allowedTypes = ["image/jpeg", "image/png", "application/pdf"],
+  maxSize = 10 * 1024 * 1024
+) => {
+  if (!file) {
+    throw new Error("No file provided");
+  }
+  if (!allowedTypes.includes(file.mimetype)) {
+    throw new Error("Invalid file type. Allowed: JPG, PNG, PDF");
+  }
+  if (file.size > maxSize) {
+    throw new Error("File size exceeds 10MB limit");
+  }
+  return true;
+};
+
+// GET /api/worker-application/me
+// Get logged-in user's application
+const getMyApplication = async (req, res) => {
+  try {
+    const worker = await Worker.findOne({ user: req.user._id }).populate(
+      "user",
+      "email"
+    ); // Populate user if needed
+    if (!worker) {
+      return res.status(404).json({
+        success: false,
+        message: "No application found for this user",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: worker,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+// POST /api/worker-application
+// Create new application (as draft/incomplete)
+const createApplication = async (req, res) => {
+  try {
+    // Check if user already has an application
+    const existing = await Worker.findOne({ user: req.user._id });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "User already has an application",
+      });
+    }
+
+    const applicationData = {
+      user: req.user._id,
+      ...req.body,
+      applicationStatus: ApplicationStatus.INCOMPLETE,
+      documents: {}, // Initialize empty documents
+      backgroundCheck: {
+        hasConvictions: req.body.hasConvictions || false,
+        convictionDetails: req.body.hasConvictions
+          ? req.body.convictionDetails
+          : "",
+      },
     };
 
-    const worker = await Worker.create(workerData);
-
-    // Populate worker with user data
-    await worker.populate('user', 'name email');
-
-    // Send application confirmation email
-    try {
-      await emailService.sendWorkerApplicationConfirmation(
-        req.user.email,
-        req.user.name
-      );
-    } catch (emailError) {
-      console.error('Failed to send confirmation email:', emailError);
-      // Don't fail the application if email fails
-    }
+    const worker = new Worker(applicationData);
+    await worker.save();
 
     res.status(201).json({
       success: true,
-      message: 'Worker application submitted successfully',
-      worker: {
-        id: worker._id,
-        applicationStatus: worker.applicationStatus,
-        submittedAt: worker.submittedAt,
-        fullName: worker.fullName
-      }
+      data: worker,
+      message: "Application created successfully as draft",
     });
-
   } catch (error) {
-    console.error('Worker application error:', error);
-    res.status(500).json({
+    console.error(error);
+    res.status(400).json({
       success: false,
-      message: 'Server error while submitting application'
+      message: "Failed to create application",
+      error: error.message,
     });
   }
 };
 
-// @desc    Get worker application status
-// @route   GET /api/workers/application-status
-// @access  Private
-exports.getApplicationStatus = async (req, res) => {
+// PUT /api/worker-application
+// Update application
+const updateApplication = async (req, res) => {
   try {
-    const worker = await Worker.findOne({ user: req.user.id })
-      .select('applicationStatus submittedAt approvedAt rejectionReason');
-
-    if (!worker) {
-      return res.status(200).json({
-        success: true,
-        hasApplication: false,
-        canApply: true
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      hasApplication: true,
-      canApply: false,
-      application: {
-        status: worker.applicationStatus,
-        submittedAt: worker.submittedAt,
-        approvedAt: worker.approvedAt,
-        rejectionReason: worker.rejectionReason
-      }
-    });
-
-  } catch (error) {
-    console.error('Get application status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching application status'
-    });
-  }
-};
-
-// @desc    Get worker profile
-// @route   GET /api/workers/profile
-// @access  Private (Worker only)
-exports.getWorkerProfile = async (req, res) => {
-  try {
-    const worker = await Worker.findOne({ 
-      user: req.user.id,
-      applicationStatus: 'approved'
-    }).populate('user', 'name email phone avatar');
-
+    const worker = await Worker.findOne({ user: req.user._id });
     if (!worker) {
       return res.status(404).json({
         success: false,
-        message: 'Worker profile not found or not approved'
+        message: "No application found for this user",
       });
     }
 
-    res.status(200).json({
-      success: true,
-      worker
-    });
-
-  } catch (error) {
-    console.error('Get worker profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching worker profile'
-    });
-  }
-};
-
-// @desc    Update worker profile
-// @route   PUT /api/workers/profile
-// @access  Private (Worker only)
-exports.updateWorkerProfile = async (req, res) => {
-  try {
-    const worker = await Worker.findOne({ 
-      user: req.user.id,
-      applicationStatus: 'approved'
-    });
-
-    if (!worker) {
-      return res.status(404).json({
+    // Prevent updating if already submitted or approved
+    if (worker.applicationStatus !== ApplicationStatus.INCOMPLETE) {
+      return res.status(403).json({
         success: false,
-        message: 'Worker profile not found or not approved'
+        message: "Cannot update a submitted or processed application",
       });
     }
 
-    const {
-      services,
-      hourlyRate,
-      availability,
-      bio,
-      isAvailable
-    } = req.body;
+    // Update fields
+    Object.assign(worker, req.body);
 
-    // Update worker fields
-    if (services) worker.services = services;
-    if (hourlyRate) worker.hourlyRate = parseFloat(hourlyRate);
-    if (availability) worker.availability = availability;
-    if (bio) worker.bio = bio.trim();
-    if (typeof isAvailable === 'boolean') worker.isAvailable = isAvailable;
+    // Handle background check conditionally
+    if (req.body.hasConvictions !== undefined) {
+      worker.backgroundCheck.hasConvictions = req.body.hasConvictions;
+      worker.backgroundCheck.convictionDetails = req.body.hasConvictions
+        ? req.body.convictionDetails
+        : "";
+    }
 
     await worker.save();
-    await worker.populate('user', 'name email phone avatar');
 
     res.status(200).json({
       success: true,
-      message: 'Worker profile updated successfully',
-      worker
+      data: worker,
+      message: "Application updated successfully",
     });
-
   } catch (error) {
-    console.error('Update worker profile error:', error);
-    res.status(500).json({
+    console.error(error);
+    res.status(400).json({
       success: false,
-      message: 'Server error while updating worker profile'
+      message: "Failed to update application",
+      error: error.message,
     });
   }
 };
 
-// @desc    Get worker dashboard stats
-// @route   GET /api/workers/dashboard
-// @access  Private (Worker only)
-exports.getWorkerDashboard = async (req, res) => {
+// POST /api/worker-application/submit
+// Mark application as submitted (pending)
+const submitApplication = async (req, res) => {
   try {
-    const worker = await Worker.findOne({ 
-      user: req.user.id,
-      applicationStatus: 'approved'
-    }).populate('user', 'name email phone avatar');
-
+    const worker = await Worker.findOne({ user: req.user._id });
     if (!worker) {
       return res.status(404).json({
         success: false,
-        message: 'Worker profile not found or not approved'
+        message: "No application found for this user",
       });
     }
 
-    // Get recent bookings
-    const recentBookings = await Booking.find({ worker: worker._id })
-      .populate('service', 'name')
-      .populate('customer.user', 'name email phone')
-      .sort({ createdAt: -1 })
-      .limit(10);
-
-    // Calculate additional stats
-    const thisMonth = new Date();
-    thisMonth.setDate(1);
-    thisMonth.setHours(0, 0, 0, 0);
-
-    const monthlyBookings = await Booking.countDocuments({
-      worker: worker._id,
-      createdAt: { $gte: thisMonth }
-    });
-
-    const monthlyEarnings = await Booking.aggregate([
-      {
-        $match: {
-          worker: worker._id,
-          status: 'completed',
-          createdAt: { $gte: thisMonth }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: '$pricing.totalAmount' }
-        }
-      }
-    ]);
-
-    const stats = {
-      ...worker.stats,
-      monthlyBookings,
-      monthlyEarnings: monthlyEarnings[0]?.total || 0,
-      completionRate: worker.completionRate
-    };
-
-    res.status(200).json({
-      success: true,
-      worker,
-      stats,
-      recentBookings
-    });
-
-  } catch (error) {
-    console.error('Get worker dashboard error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching dashboard data'
-    });
-  }
-};
-
-// @desc    Get available workers for a service
-// @route   GET /api/workers/available
-// @access  Public
-exports.getAvailableWorkers = async (req, res) => {
-  try {
-    const {
-      service,
-      date,
-      time,
-      latitude,
-      longitude,
-      radius = 25,
-      page = 1,
-      limit = 10
-    } = req.query;
-
-    let query = {
-      applicationStatus: 'approved',
-      isAvailable: true,
-      isVerified: true
-    };
-
-    // Filter by service if provided
-    if (service) {
-      query.services = { $in: [service] };
+    // Prevent re-submission
+    if (worker.applicationStatus !== ApplicationStatus.INCOMPLETE) {
+      return res.status(403).json({
+        success: false,
+        message: "Application already submitted or processed",
+      });
     }
 
-    // Build aggregation pipeline
-    let pipeline = [
-      { $match: query },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'user',
-          foreignField: '_id',
-          as: 'user'
-        }
-      },
-      { $unwind: '$user' },
-      {
-        $match: {
-          'user.isActive': true
-        }
-      }
+    // Validate required fields before submission
+    const requiredFields = [
+      "firstName",
+      "lastName",
+      "email",
+      "phone",
+      "address",
+      "services",
+      "experience",
+      "hourlyRate",
+      "availability",
+      "bio",
     ];
-
-    // Add geospatial filtering if coordinates provided
-    if (latitude && longitude) {
-      pipeline.push({
-        $addFields: {
-          distance: {
-            $multiply: [
-              {
-                $acos: {
-                  $add: [
-                    {
-                      $multiply: [
-                        { $sin: { $degreesToRadians: parseFloat(latitude) } },
-                        { $sin: { $degreesToRadians: { $arrayElemAt: ['$user.location.coordinates', 1] } } }
-                      ]
-                    },
-                    {
-                      $multiply: [
-                        { $cos: { $degreesToRadians: parseFloat(latitude) } },
-                        { $cos: { $degreesToRadians: { $arrayElemAt: ['$user.location.coordinates', 1] } } },
-                        { $cos: { $degreesToRadians: { $subtract: [parseFloat(longitude), { $arrayElemAt: ['$user.location.coordinates', 0] }] } } }
-                      ]
-                    }
-                  ]
-                }
-              },
-              6371 // Earth's radius in kilometers
-            ]
-          }
-        }
-      });
-
-      pipeline.push({
-        $match: {
-          distance: { $lte: parseFloat(radius) }
-        }
-      });
-
-      pipeline.push({
-        $sort: { distance: 1, 'rating.average': -1 }
-      });
-    } else {
-      pipeline.push({
-        $sort: { 'rating.average': -1, 'stats.completedBookings': -1 }
-      });
-    }
-
-    // Add pagination
-    pipeline.push(
-      { $skip: (page - 1) * limit },
-      { $limit: parseInt(limit) }
+    const missingFields = requiredFields.filter(
+      (field) =>
+        !worker[field] ||
+        (Array.isArray(worker[field]) && worker[field].length === 0)
     );
-
-    const workers = await Worker.aggregate(pipeline);
-
-    // Get total count for pagination
-    const totalPipeline = pipeline.slice(0, -2); // Remove skip and limit
-    totalPipeline.push({ $count: 'total' });
-    const totalResult = await Worker.aggregate(totalPipeline);
-    const total = totalResult[0]?.total || 0;
-
-    res.status(200).json({
-      success: true,
-      workers,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    });
-
-  } catch (error) {
-    console.error('Get available workers error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching workers'
-    });
-  }
-};
-
-// @desc    Get worker public profile
-// @route   GET /api/workers/:id
-// @access  Public
-exports.getWorkerPublicProfile = async (req, res) => {
-  try {
-    const worker = await Worker.findById(req.params.id)
-      .populate('user', 'name avatar bio location')
-      .select('-documents -backgroundCheck');
-
-    if (!worker || worker.applicationStatus !== 'approved') {
-      return res.status(404).json({
-        success: false,
-        message: 'Worker not found'
-      });
-    }
-
-    // Get recent reviews
-    const recentReviews = await Booking.find({
-      worker: worker._id,
-      'review.rating': { $exists: true }
-    })
-    .populate('customer.user', 'name')
-    .select('review service')
-    .populate('service', 'name')
-    .sort({ 'review.reviewDate': -1 })
-    .limit(5);
-
-    res.status(200).json({
-      success: true,
-      worker,
-      recentReviews
-    });
-
-  } catch (error) {
-    console.error('Get worker public profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching worker profile'
-    });
-  }
-};
-
-// @desc    Reapply as worker (for rejected applications)
-// @route   POST /api/workers/reapply
-// @access  Private
-exports.reapplyAsWorker = async (req, res) => {
-  try {
-    const existingWorker = await Worker.findOne({ user: req.user.id });
-    
-    if (!existingWorker) {
-      return res.status(404).json({
-        success: false,
-        message: 'No previous application found'
-      });
-    }
-
-    if (existingWorker.applicationStatus !== 'rejected') {
+    if (missingFields.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Can only reapply for rejected applications'
+        message: `Missing required fields: ${missingFields.join(", ")}`,
       });
     }
 
-    // Update the existing application
-    const {
-      firstName,
-      lastName,
-      email,
-      phone,
-      address,
-      services,
-      experience,
-      hourlyRate,
-      availability,
-      bio,
-      hasConvictions,
-      convictionDetails
-    } = req.body;
+    // Validate ID document
+    if (!worker.documents?.idDocument?.url) {
+      return res.status(400).json({
+        success: false,
+        message: "ID document is required before submission",
+      });
+    }
 
-    existingWorker.firstName = firstName.trim();
-    existingWorker.lastName = lastName.trim();
-    existingWorker.email = email.trim().toLowerCase();
-    existingWorker.phone = phone.trim();
-    existingWorker.address = address.trim();
-    existingWorker.services = services;
-    existingWorker.experience = experience;
-    existingWorker.hourlyRate = parseFloat(hourlyRate);
-    existingWorker.availability = availability;
-    existingWorker.bio = bio.trim();
-    existingWorker.backgroundCheck = {
-      hasConvictions: hasConvictions || false,
-      convictionDetails: hasConvictions ? convictionDetails : ''
-    };
-    existingWorker.applicationStatus = 'pending';
-    existingWorker.submittedAt = new Date();
-    existingWorker.rejectionReason = undefined;
+    // Validate background check details if hasConvictions
+    if (
+      worker.backgroundCheck.hasConvictions &&
+      !worker.backgroundCheck.convictionDetails
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Conviction details are required if you have convictions",
+      });
+    }
 
-    await existingWorker.save();
+    // Submit
+    worker.applicationStatus = ApplicationStatus.PENDING;
+    worker.submittedAt = new Date();
+    await worker.save();
 
     res.status(200).json({
       success: true,
-      message: 'Worker application resubmitted successfully',
-      worker: {
-        id: existingWorker._id,
-        applicationStatus: existingWorker.applicationStatus,
-        submittedAt: existingWorker.submittedAt
-      }
+      data: worker,
+      message: "Application submitted successfully for review",
     });
-
   } catch (error) {
-    console.error('Reapply as worker error:', error);
-    res.status(500).json({
+    console.error(error);
+    res.status(400).json({
       success: false,
-      message: 'Server error while resubmitting application'
+      message: "Failed to submit application",
+      error: error.message,
     });
   }
 };
 
-module.exports = exports;
+// POST /api/worker-application/upload
+// Upload file to Cloudinary (multer middleware assumed in routes for file handling)
+const uploadDocument = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded",
+      });
+    }
 
+    const { documentType } = req.body; // 'idDocument' or 'certification'
+    if (
+      !documentType ||
+      !["idDocument", "certification"].includes(documentType)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Invalid document type. Must be "idDocument" or "certification"',
+      });
+    }
 
+    // Validate file
+    validateFile(req.file);
 
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(req.file);
 
+    // Find worker
+    const worker = await Worker.findOne({ user: req.user._id });
+    if (!worker) {
+      return res.status(404).json({
+        success: false,
+        message: "No application found for this user",
+      });
+    }
 
+    // Prevent upload if already submitted
+    if (worker.applicationStatus !== ApplicationStatus.INCOMPLETE) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Cannot upload documents to a submitted or processed application",
+      });
+    }
 
+    const uploadData = {
+      url: result.secure_url,
+      publicId: result.public_id,
+      originalName: req.file.originalname,
+      uploadedAt: new Date(),
+    };
 
+    if (documentType === "idDocument") {
+      worker.documents.idDocument = uploadData;
+    } else {
+      worker.documents.certifications.push({
+        ...uploadData,
+        name: req.file.originalname.split(".")[0], // Simple name extraction
+      });
+    }
 
+    await worker.save();
 
+    res.status(200).json({
+      success: true,
+      data: {
+        url: uploadData.url,
+        originalName: uploadData.originalName,
+      },
+      message: "Document uploaded successfully",
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload document",
+      error: error.message,
+    });
+  }
+};
 
+module.exports = {
+  getMyApplication,
+  createApplication,
+  updateApplication,
+  submitApplication,
+  uploadDocument,
+};
 
+// const Worker = require("../models/Worker");
+// const User = require("../models/User");
+// const Booking = require("../models/Booking");
+// const { validationResult } = require("express-validator");
+// const emailService = require("../services/emailService");
+
+// // @desc    Submit worker application
+// // @route   POST /api/workers/apply
+// // @access  Private
+// exports.applyAsWorker = async (req, res) => {
+//   try {
+//     const errors = validationResult(req);
+//     if (!errors.isEmpty()) {
+//       console.log("Validation errors:", errors.array()); // Debug log
+//       return res.status(400).json({
+//         success: false,
+//         message: "Validation errors",
+//         errors: errors.array(),
+//       });
+//     }
+
+//     // Check if user already has a worker application
+//     const existingWorker = await Worker.findOne({ user: req.user.id });
+//     if (existingWorker) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Worker application already exists",
+//         applicationStatus: existingWorker.applicationStatus,
+//       });
+//     }
+
+//     const {
+//       firstName,
+//       lastName,
+//       email,
+//       phone,
+//       address,
+//       services,
+//       experience,
+//       hourlyRate,
+//       availability,
+//       bio,
+//       hasConvictions,
+//       convictionDetails,
+//     } = req.body;
+
+//     // Parse JSON strings
+//     const parsedServices =
+//       typeof services === "string" ? JSON.parse(services) : services;
+//     const parsedAvailability =
+//       typeof availability === "string"
+//         ? JSON.parse(availability)
+//         : availability;
+
+//     // Validate files
+//     if (!req.files || !req.files.idDocument) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Government ID is required",
+//       });
+//     }
+
+//     // Create worker application
+//     const workerData = {
+//       user: req.user.id,
+//       firstName: firstName.trim(),
+//       lastName: lastName.trim(),
+//       email: email.trim().toLowerCase(),
+//       phone: phone.trim(),
+//       address: address.trim(),
+//       services: parsedServices,
+//       experience,
+//       hourlyRate: parseFloat(hourlyRate),
+//       availability: parsedAvailability,
+//       bio: bio.trim(),
+//       backgroundCheck: {
+//         hasConvictions: hasConvictions === "true" || hasConvictions === true,
+//         convictionDetails:
+//           hasConvictions === "true" || hasConvictions === true
+//             ? convictionDetails
+//             : "",
+//       },
+//       documents: {
+//         idDocument: {
+//           data: req.files.idDocument[0].buffer,
+//           contentType: req.files.idDocument[0].mimetype,
+//           filename: req.files.idDocument[0].originalname,
+//         },
+//         certifications: req.files.certifications
+//           ? req.files.certifications.map((file) => ({
+//               data: file.buffer,
+//               contentType: file.mimetype,
+//               filename: file.originalname,
+//             }))
+//           : [],
+//       },
+//       applicationStatus: "pending",
+//       submittedAt: new Date(),
+//     };
+
+//     const worker = await Worker.create(workerData);
+
+//     // Populate worker with user data
+//     await worker.populate("user", "name email");
+
+//     // Send application confirmation email
+//     try {
+//       await emailService.sendWorkerApplicationConfirmation(
+//         req.user.email,
+//         req.user.name
+//       );
+//     } catch (emailError) {
+//       console.error("Failed to send confirmation email:", emailError);
+//     }
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Worker application submitted successfully",
+//       worker: {
+//         id: worker._id,
+//         applicationStatus: worker.applicationStatus,
+//         submittedAt: worker.submittedAt,
+//         fullName: worker.fullName,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Worker application error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while submitting application",
+//       error: error.message,
+//     });
+//   }
+// };
+
+// // @desc    Get worker application status
+// // @route   GET /api/workers/application-status
+// // @access  Private
+// exports.getApplicationStatus = async (req, res) => {
+//   try {
+//     const worker = await Worker.findOne({ user: req.user.id }).select(
+//       "applicationStatus submittedAt approvedAt rejectionReason"
+//     );
+
+//     if (!worker) {
+//       return res.status(200).json({
+//         success: true,
+//         hasApplication: false,
+//         canApply: true,
+//       });
+//     }
+
+//     res.status(200).json({
+//       success: true,
+//       hasApplication: true,
+//       canApply: false,
+//       application: {
+//         status: worker.applicationStatus,
+//         submittedAt: worker.submittedAt,
+//         approvedAt: worker.approvedAt,
+//         rejectionReason: worker.rejectionReason,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get application status error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching application status",
+//     });
+//   }
+// };
+
+// // @desc    Get worker profile
+// // @route   GET /api/workers/profile
+// // @access  Private (Worker only)
+// exports.getWorkerProfile = async (req, res) => {
+//   try {
+//     const worker = await Worker.findOne({
+//       user: req.user.id,
+//       applicationStatus: "approved",
+//     }).populate("user", "name email phone avatar");
+
+//     if (!worker) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Worker profile not found or not approved",
+//       });
+//     }
+
+//     res.status(200).json({
+//       success: true,
+//       worker,
+//     });
+//   } catch (error) {
+//     console.error("Get worker profile error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching worker profile",
+//     });
+//   }
+// };
+
+// // @desc    Update worker profile
+// // @route   PUT /api/workers/profile
+// // @access  Private (Worker only)
+// exports.updateWorkerProfile = async (req, res) => {
+//   try {
+//     const worker = await Worker.findOne({
+//       user: req.user.id,
+//       applicationStatus: "approved",
+//     });
+
+//     if (!worker) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Worker profile not found or not approved",
+//       });
+//     }
+
+//     const { services, hourlyRate, availability, bio, isAvailable } = req.body;
+
+//     // Update worker fields
+//     if (services) worker.services = services;
+//     if (hourlyRate) worker.hourlyRate = parseFloat(hourlyRate);
+//     if (availability) worker.availability = availability;
+//     if (bio) worker.bio = bio.trim();
+//     if (typeof isAvailable === "boolean") worker.isAvailable = isAvailable;
+
+//     await worker.save();
+//     await worker.populate("user", "name email phone avatar");
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Worker profile updated successfully",
+//       worker,
+//     });
+//   } catch (error) {
+//     console.error("Update worker profile error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while updating worker profile",
+//     });
+//   }
+// };
+
+// // @desc    Get worker dashboard stats
+// // @route   GET /api/workers/dashboard
+// // @access  Private (Worker only)
+// exports.getWorkerDashboard = async (req, res) => {
+//   try {
+//     const worker = await Worker.findOne({
+//       user: req.user.id,
+//       applicationStatus: "approved",
+//     }).populate("user", "name email phone avatar");
+
+//     if (!worker) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Worker profile not found or not approved",
+//       });
+//     }
+
+//     // Get recent bookings
+//     const recentBookings = await Booking.find({ worker: worker._id })
+//       .populate("service", "name")
+//       .populate("customer.user", "name email phone")
+//       .sort({ createdAt: -1 })
+//       .limit(10);
+
+//     // Calculate additional stats
+//     const thisMonth = new Date();
+//     thisMonth.setDate(1);
+//     thisMonth.setHours(0, 0, 0, 0);
+
+//     const monthlyBookings = await Booking.countDocuments({
+//       worker: worker._id,
+//       createdAt: { $gte: thisMonth },
+//     });
+
+//     const monthlyEarnings = await Booking.aggregate([
+//       {
+//         $match: {
+//           worker: worker._id,
+//           status: "completed",
+//           createdAt: { $gte: thisMonth },
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: null,
+//           total: { $sum: "$pricing.totalAmount" },
+//         },
+//       },
+//     ]);
+
+//     const stats = {
+//       ...worker.stats,
+//       monthlyBookings,
+//       monthlyEarnings: monthlyEarnings[0]?.total || 0,
+//       completionRate: worker.completionRate,
+//     };
+
+//     res.status(200).json({
+//       success: true,
+//       worker,
+//       stats,
+//       recentBookings,
+//     });
+//   } catch (error) {
+//     console.error("Get worker dashboard error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching dashboard data",
+//     });
+//   }
+// };
+
+// // @desc    Get available workers for a service
+// // @route   GET /api/workers/available
+// // @access  Public
+// exports.getAvailableWorkers = async (req, res) => {
+//   try {
+//     const {
+//       service,
+//       date,
+//       time,
+//       latitude,
+//       longitude,
+//       radius = 25,
+//       page = 1,
+//       limit = 10,
+//     } = req.query;
+
+//     let query = {
+//       applicationStatus: "approved",
+//       isAvailable: true,
+//       isVerified: true,
+//     };
+
+//     // Filter by service if provided
+//     if (service) {
+//       query.services = { $in: [service] };
+//     }
+
+//     // Build aggregation pipeline
+//     let pipeline = [
+//       { $match: query },
+//       {
+//         $lookup: {
+//           from: "users",
+//           localField: "user",
+//           foreignField: "_id",
+//           as: "user",
+//         },
+//       },
+//       { $unwind: "$user" },
+//       {
+//         $match: {
+//           "user.isActive": true,
+//         },
+//       },
+//     ];
+
+//     // Add geospatial filtering if coordinates provided
+//     if (latitude && longitude) {
+//       pipeline.push({
+//         $addFields: {
+//           distance: {
+//             $multiply: [
+//               {
+//                 $acos: {
+//                   $add: [
+//                     {
+//                       $multiply: [
+//                         { $sin: { $degreesToRadians: parseFloat(latitude) } },
+//                         {
+//                           $sin: {
+//                             $degreesToRadians: {
+//                               $arrayElemAt: ["$user.location.coordinates", 1],
+//                             },
+//                           },
+//                         },
+//                       ],
+//                     },
+//                     {
+//                       $multiply: [
+//                         { $cos: { $degreesToRadians: parseFloat(latitude) } },
+//                         {
+//                           $cos: {
+//                             $degreesToRadians: {
+//                               $arrayElemAt: ["$user.location.coordinates", 1],
+//                             },
+//                           },
+//                         },
+//                         {
+//                           $cos: {
+//                             $degreesToRadians: {
+//                               $subtract: [
+//                                 parseFloat(longitude),
+//                                 {
+//                                   $arrayElemAt: [
+//                                     "$user.location.coordinates",
+//                                     0,
+//                                   ],
+//                                 },
+//                               ],
+//                             },
+//                           },
+//                         },
+//                       ],
+//                     },
+//                   ],
+//                 },
+//               },
+//               6371, // Earth's radius in kilometers
+//             ],
+//           },
+//         },
+//       });
+
+//       pipeline.push({
+//         $match: {
+//           distance: { $lte: parseFloat(radius) },
+//         },
+//       });
+
+//       pipeline.push({
+//         $sort: { distance: 1, "rating.average": -1 },
+//       });
+//     } else {
+//       pipeline.push({
+//         $sort: { "rating.average": -1, "stats.completedBookings": -1 },
+//       });
+//     }
+
+//     // Add pagination
+//     pipeline.push({ $skip: (page - 1) * limit }, { $limit: parseInt(limit) });
+
+//     const workers = await Worker.aggregate(pipeline);
+
+//     // Get total count for pagination
+//     const totalPipeline = pipeline.slice(0, -2); // Remove skip and limit
+//     totalPipeline.push({ $count: "total" });
+//     const totalResult = await Worker.aggregate(totalPipeline);
+//     const total = totalResult[0]?.total || 0;
+
+//     res.status(200).json({
+//       success: true,
+//       workers,
+//       pagination: {
+//         page: parseInt(page),
+//         limit: parseInt(limit),
+//         total,
+//         pages: Math.ceil(total / limit),
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Get available workers error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching workers",
+//     });
+//   }
+// };
+
+// // @desc    Get worker public profile
+// // @route   GET /api/workers/:id
+// // @access  Public
+// exports.getWorkerPublicProfile = async (req, res) => {
+//   try {
+//     const worker = await Worker.findById(req.params.id)
+//       .populate("user", "name avatar bio location")
+//       .select("-documents -backgroundCheck");
+
+//     if (!worker || worker.applicationStatus !== "approved") {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Worker not found",
+//       });
+//     }
+
+//     // Get recent reviews
+//     const recentReviews = await Booking.find({
+//       worker: worker._id,
+//       "review.rating": { $exists: true },
+//     })
+//       .populate("customer.user", "name")
+//       .select("review service")
+//       .populate("service", "name")
+//       .sort({ "review.reviewDate": -1 })
+//       .limit(5);
+
+//     res.status(200).json({
+//       success: true,
+//       worker,
+//       recentReviews,
+//     });
+//   } catch (error) {
+//     console.error("Get worker public profile error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while fetching worker profile",
+//     });
+//   }
+// };
+
+// // @desc    Reapply as worker (for rejected applications)
+// // @route   POST /api/workers/reapply
+// // @access  Private
+// exports.reapplyAsWorker = async (req, res) => {
+//   try {
+//     const existingWorker = await Worker.findOne({ user: req.user.id });
+
+//     if (!existingWorker) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "No previous application found",
+//       });
+//     }
+
+//     if (existingWorker.applicationStatus !== "rejected") {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Can only reapply for rejected applications",
+//       });
+//     }
+
+//     // Update the existing application
+//     const {
+//       firstName,
+//       lastName,
+//       email,
+//       phone,
+//       address,
+//       services,
+//       experience,
+//       hourlyRate,
+//       availability,
+//       bio,
+//       hasConvictions,
+//       convictionDetails,
+//     } = req.body;
+
+//     existingWorker.firstName = firstName.trim();
+//     existingWorker.lastName = lastName.trim();
+//     existingWorker.email = email.trim().toLowerCase();
+//     existingWorker.phone = phone.trim();
+//     existingWorker.address = address.trim();
+//     existingWorker.services = services;
+//     existingWorker.experience = experience;
+//     existingWorker.hourlyRate = parseFloat(hourlyRate);
+//     existingWorker.availability = availability;
+//     existingWorker.bio = bio.trim();
+//     existingWorker.backgroundCheck = {
+//       hasConvictions: hasConvictions || false,
+//       convictionDetails: hasConvictions ? convictionDetails : "",
+//     };
+//     existingWorker.applicationStatus = "pending";
+//     existingWorker.submittedAt = new Date();
+//     existingWorker.rejectionReason = undefined;
+
+//     await existingWorker.save();
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Worker application resubmitted successfully",
+//       worker: {
+//         id: existingWorker._id,
+//         applicationStatus: existingWorker.applicationStatus,
+//         submittedAt: existingWorker.submittedAt,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Reapply as worker error:", error);
+//     res.status(500).json({
+//       success: false,
+//       message: "Server error while resubmitting application",
+//     });
+//   }
+// };
+
+// module.exports = exports;
 
 // const Worker = require('../models/Worker');
 // const User = require('../models/User');
@@ -576,7 +966,7 @@ module.exports = exports;
 
 //   // Check if user already has a worker application
 //   const existingWorker = await Worker.findOne({ user: req.user.id });
-  
+
 //   if (existingWorker) {
 //     return next(new AppError('Worker application already exists', 400));
 //   }
@@ -635,13 +1025,13 @@ module.exports = exports;
 // // @access  Private
 // exports.uploadDocuments = catchAsync(async (req, res, next) => {
 //   const worker = await Worker.findOne({ user: req.user.id });
-  
+
 //   if (!worker) {
 //     return next(new AppError('Worker application not found', 404));
 //   }
 
 //   const { documentType } = req.body;
-  
+
 //   if (!req.file) {
 //     return next(new AppError('Please upload a file', 400));
 //   }
@@ -691,7 +1081,7 @@ module.exports = exports;
 // // @access  Private
 // exports.submitForReview = catchAsync(async (req, res, next) => {
 //   const worker = await Worker.findOne({ user: req.user.id });
-  
+
 //   if (!worker) {
 //     return next(new AppError('Worker application not found', 404));
 //   }
@@ -704,7 +1094,7 @@ module.exports = exports;
 //   // Submit application
 //   worker.applicationStatus = 'pending';
 //   worker.submittedAt = new Date();
-  
+
 //   await worker.save();
 
 //   res.status(200).json({
@@ -719,7 +1109,7 @@ module.exports = exports;
 // // @access  Private
 // exports.getWorkerApplication = catchAsync(async (req, res, next) => {
 //   const worker = await Worker.findOne({ user: req.user.id }).populate('user', 'name email');
-  
+
 //   if (!worker) {
 //     return next(new AppError('Worker application not found', 404));
 //   }
@@ -735,7 +1125,7 @@ module.exports = exports;
 // // @access  Private
 // exports.updateWorkerApplication = catchAsync(async (req, res, next) => {
 //   const worker = await Worker.findOne({ user: req.user.id });
-  
+
 //   if (!worker) {
 //     return next(new AppError('Worker application not found', 404));
 //   }
@@ -784,7 +1174,7 @@ module.exports = exports;
 
 //   // Build query
 //   let query = {};
-  
+
 //   if (status) {
 //     query.applicationStatus = status;
 //   }
@@ -829,18 +1219,18 @@ module.exports = exports;
 //   }
 
 //   const worker = await Worker.findById(req.params.id);
-  
+
 //   if (!worker) {
 //     return next(new AppError('Worker not found', 404));
 //   }
 
 //   worker.applicationStatus = status;
-  
+
 //   if (status === 'approved') {
 //     worker.approvedAt = new Date();
 //     worker.approvedBy = req.user.id;
 //     worker.isVerified = true;
-    
+
 //     // Update user role to worker
 //     await User.findByIdAndUpdate(worker.user, { role: 'worker' });
 //   } else if (status === 'rejected') {
@@ -861,7 +1251,7 @@ module.exports = exports;
 // // @access  Private/Admin
 // exports.getWorkerById = catchAsync(async (req, res, next) => {
 //   const worker = await Worker.findById(req.params.id).populate('user', 'name email');
-  
+
 //   if (!worker) {
 //     return next(new AppError('Worker not found', 404));
 //   }

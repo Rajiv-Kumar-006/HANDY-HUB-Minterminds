@@ -5,7 +5,7 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     unique: true,
     required: true
-  },
+  }, 
   service: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Service',

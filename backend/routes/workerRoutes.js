@@ -1,45 +1,13 @@
-const express = require("express");
-const {
-  applyAsWorker,
-  getApplicationStatus,
-  getWorkerProfile,
-  updateWorkerProfile,
-  getWorkerDashboard,
-  getAvailableWorkers,
-  getWorkerPublicProfile,
-  reapplyAsWorker,
-} = require("../controllers/workerController");
-const { protect, authorize } = require("../middleware/auth");
-const {
-  validateWorkerApplication,
-  validateObjectId,
-  validatePagination,
-} = require("../middleware/validation");
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() }); 
 
-const router = express.Router();
+router.get('/me', authMiddleware, getMyApplication);
+router.post('/', authMiddleware, createApplication);
+router.put('/', authMiddleware, updateApplication);
+router.post('/submit', authMiddleware, submitApplication);
+router.post('/upload', authMiddleware, upload.single('file'), uploadDocument);
 
-// Public routes
-router.get("/available", validatePagination, getAvailableWorkers);
-router.get("/:id", validateObjectId, getWorkerPublicProfile);
 
-// Protected routes - All users can check application status
-router.get("/application/status", protect, getApplicationStatus);
-
-// Protected routes - User can apply
-router.post("/apply", protect, validateWorkerApplication, applyAsWorker);
-router.post("/reapply", protect, validateWorkerApplication, reapplyAsWorker);
-
-// Protected routes - Only approved workers
-router.get("/profile/me", protect, authorize("worker"), getWorkerProfile);
-router.put("/profile/me", protect, authorize("worker"), updateWorkerProfile);
-router.get(
-  "/dashboard/stats",
-  protect,
-  authorize("worker"),
-  getWorkerDashboard
-);
-
-module.exports = router;
 
 
 // const express = require('express');

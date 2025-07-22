@@ -3,7 +3,7 @@ import React, {
   useContext,
   useState,
   useEffect,
-  ReactNode
+  ReactNode,
 } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,7 @@ interface User {
   role: 'admin' | 'worker' | 'user';
   phone?: string;
   avatar?: string;
+  isWorker?: boolean;
   location?: {
     lat: number;
     lng: number;
@@ -37,6 +38,7 @@ interface AuthContextType {
   logout: () => void;
   sendOTP: (email: string) => Promise<void>;
   verifyOTP: (email: string, otp: string) => Promise<void>;
+  checkWorkerStatus: () => Promise<any>;
   isLoading: boolean;
 }
 
@@ -52,7 +54,7 @@ export const useAuth = () => {
 
 const api = axios.create({
   baseURL: 'http://localhost:5000/api',
-  withCredentials: true
+  withCredentials: true,
 });
 
 const persistAuthData = (user: User, token: string) => {
@@ -64,7 +66,7 @@ const extractError = (error: any) =>
   error?.response?.data?.message || 'Something went wrong';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({
-  children
+  children,
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,7 +92,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       persistAuthData(res.data.user, res.data.token);
       setUser(res.data.user);
     } catch (error: any) {
-      console.error('Login error:', error?.response?.data);
       throw new Error(extractError(error));
     } finally {
       setIsLoading(false);
@@ -101,10 +102,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     setIsLoading(true);
     try {
       await api.post('/auth/register', userData);
-      localStorage.setItem('verify_email', userData.email); 
+      localStorage.setItem('verify_email', userData.email);
       navigate('/verify-email');
     } catch (error: any) {
-      console.error('Register error response:', error?.response?.data);
       throw new Error(extractError(error));
     } finally {
       setIsLoading(false);
@@ -121,7 +121,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     try {
       await api.post('/auth/resend-otp', {
         email,
-        purpose: 'email-verification'
+        purpose: 'email-verification',
       });
     } catch (error: any) {
       throw new Error(extractError(error));
@@ -131,8 +131,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const verifyOTP = async (email: string, otp: string) => {
     try {
       await api.post('/auth/verify-email', { email, otp });
-      localStorage.removeItem('verify_email'); // Clear after successful verification
+      localStorage.removeItem('verify_email');
       navigate('/login');
+    } catch (error: any) {
+      throw new Error(extractError(error));
+    }
+  };
+
+  const checkWorkerStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await api.get('/workers/application/status', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      return res.data;
     } catch (error: any) {
       throw new Error(extractError(error));
     }
@@ -145,12 +159,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     logout,
     sendOTP,
     verifyOTP,
-    isLoading
+    checkWorkerStatus,
+    isLoading,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

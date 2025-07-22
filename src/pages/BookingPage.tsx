@@ -110,7 +110,7 @@ const BookingPage: React.FC = () => {
             <div className="bg-blue-50 rounded-lg p-4 mb-6">
               <h3 className="font-semibold text-blue-900 mb-2">Booking Details</h3>
               <div className="text-sm text-blue-800 space-y-1">
-                <p><strong>Service:</strong> {service.title}</p>
+                <p><strong>Service:</strong> {service.title}</p> 
                 <p><strong>Provider:</strong> {service.provider}</p>
                 <p><strong>Date:</strong> {selectedDate}</p>
                 <p><strong>Time:</strong> {selectedTime}</p>

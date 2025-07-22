@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom'; 
+import { Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { LocationProvider } from './contexts/LocationContext';
 import Navbar from './components/layout/Navbar';
@@ -14,12 +14,12 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import WorkerDashboard from './pages/worker/WorkerDashboard';
 import UserDashboard from './pages/user/UserDashboard';
 import WorkerApplicationPage from './pages/worker/WorkerApplicationPage';
-import ProtectedRoute from './components/auth/ProtectedRoute';
 import VerifyEmailPage from './pages/auth/VerifyEmailPage';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function App() {
   return (
-    <AuthProvider> 
+    <AuthProvider>
       <LocationProvider>
         <div className="min-h-screen bg-gray-50">
           <Navbar />
