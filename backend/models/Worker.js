@@ -7,7 +7,6 @@ const workerSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-
     firstName: {
       type: String,
       required: true,
@@ -34,31 +33,61 @@ const workerSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-
     services: {
       type: [String],
       required: true,
-      enum: ["cleaning", "cooking", "laundry"],
+      enum: [
+        "cleaning",
+        "cooking",
+        "laundry",
+        "plumbing",
+        "electrical",
+        "gardening",
+        "handyman",
+        "painting",
+        "automotive",
+        "deep cleaning",
+        "office cleaning",
+      ],
     },
-
     experience: {
       type: String,
       required: true,
       enum: ["0-1", "1-3", "3-5", "5-10", "10+"],
     },
-
     hourlyRate: {
       type: Number,
       required: true,
       min: 10,
       max: 200,
     },
-
     availability: {
       type: [String],
       required: true,
+      enum: [
+        "Monday Morning",
+        "Monday Afternoon",
+        "Monday Evening",
+        "Tuesday Morning",
+        "Tuesday Afternoon",
+        "Tuesday Evening",
+        "Wednesday Morning",
+        "Wednesday Afternoon",
+        "Wednesday Evening",
+        "Thursday Morning",
+        "Thursday Afternoon",
+        "Thursday Evening",
+        "Friday Morning",
+        "Friday Afternoon",
+        "Friday Evening",
+        "Saturday Morning",
+        "Saturday Afternoon",
+        "Saturday Evening",
+        "Sunday Morning",
+        "Sunday Afternoon",
+        "Sunday Evening",
+      ],
     },
-
     bio: {
       type: String,
       required: true,
@@ -66,7 +95,6 @@ const workerSchema = new mongoose.Schema(
       minlength: 50,
       maxlength: 500,
     },
-
     documents: {
       idDocument: {
         url: String,
@@ -96,7 +124,6 @@ const workerSchema = new mongoose.Schema(
         },
       ],
     },
-
     backgroundCheck: {
       hasConvictions: {
         type: Boolean,
@@ -114,7 +141,6 @@ const workerSchema = new mongoose.Schema(
       completedAt: Date,
       notes: String,
     },
-
     applicationStatus: {
       type: String,
       enum: ["incomplete", "pending", "approved", "rejected"],
@@ -127,7 +153,6 @@ const workerSchema = new mongoose.Schema(
       ref: "User",
     },
     rejectionReason: String,
-
     isAvailable: {
       type: Boolean,
       default: true,
@@ -136,12 +161,10 @@ const workerSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
     rating: {
       average: { type: Number, default: 0, min: 0, max: 5 },
       count: { type: Number, default: 0 },
     },
-
     stats: {
       totalBookings: { type: Number, default: 0 },
       completedBookings: { type: Number, default: 0 },
@@ -157,7 +180,7 @@ const workerSchema = new mongoose.Schema(
   }
 );
 
-// ✅ Virtuals
+// Virtuals
 workerSchema.virtual("fullName").get(function () {
   return `${this.firstName} ${this.lastName}`;
 });
@@ -169,13 +192,13 @@ workerSchema.virtual("completionRate").get(function () {
   );
 });
 
-// ✅ Indexes
+// Indexes
 workerSchema.index({ user: 1 });
 workerSchema.index({ applicationStatus: 1 });
 workerSchema.index({ services: 1 });
 workerSchema.index({ isAvailable: 1, isVerified: 1 });
 
-// ✅ Methods
+// Methods
 workerSchema.methods.updateRating = function (newRating) {
   const totalRating = this.rating.average * this.rating.count + newRating;
   this.rating.count += 1;
@@ -189,7 +212,7 @@ workerSchema.methods.submitApplication = function () {
   return this.save();
 };
 
-// ✅ Pre-save validation
+// Pre-save validation
 workerSchema.pre("save", function (next) {
   if (this.applicationStatus === "pending") {
     const requiredFields = [
@@ -215,10 +238,13 @@ workerSchema.pre("save", function (next) {
     if (!this.availability || this.availability.length === 0) {
       return next(new Error("At least one availability slot must be selected"));
     }
+
+    if (!this.documents.idDocument) {
+      return next(new Error("ID document is required for submission"));
+    }
   }
 
   next();
 });
 
 module.exports = mongoose.model("Worker", workerSchema);
- 

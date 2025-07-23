@@ -5,7 +5,7 @@ export interface WorkerApplicationData {
     lastName: string;
     email: string;
     phone: string;
-    address: string; 
+    address: string;
     services: string[];
     experience: string;
     hourlyRate: string;

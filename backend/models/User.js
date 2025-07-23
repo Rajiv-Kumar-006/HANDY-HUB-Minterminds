@@ -66,8 +66,6 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    emailVerificationToken: String,
-    emailVerificationExpires: Date,
     passwordResetToken: String,
     passwordResetExpires: Date,
     isActive: {
@@ -89,6 +87,14 @@ const userSchema = new mongoose.Schema(
         default: false,
       },
     },
+    totalBookings: {
+      type: Number,
+      default: 0,
+    },
+    rating: {
+      average: { type: Number, default: 0, min: 0, max: 5 },
+      count: { type: Number, default: 0 },
+    },
   },
   {
     timestamps: true,
@@ -97,8 +103,10 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Create geospatial index
+// Create indexes
 userSchema.index({ location: "2dsphere" });
+userSchema.index({ email: 1 });
+userSchema.index({ role: 1 });
 
 // Virtual for full name
 userSchema.virtual("fullName").get(function () {
@@ -118,34 +126,12 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Generate email verification token
-userSchema.methods.createEmailVerificationToken = function () {
-  const crypto = require("crypto");
-  const token = crypto.randomBytes(32).toString("hex");
-
-  this.emailVerificationToken = crypto
-    .createHash("sha256")
-    .update(token)
-    .digest("hex");
-
-  this.emailVerificationExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-  return token;
-};
-
-// Generate password reset token
-userSchema.methods.createPasswordResetToken = function () {
-  const crypto = require("crypto");
-  const resetToken = crypto.randomBytes(32).toString("hex");
-
-  this.passwordResetToken = crypto
-    .createHash("sha256")
-    .update(resetToken)
-    .digest("hex");
-
-  this.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
-  return resetToken;
+// Update rating
+userSchema.methods.updateRating = function (newRating) {
+  const totalRating = this.rating.average * this.rating.count + newRating;
+  this.rating.count += 1;
+  this.rating.average = totalRating / this.rating.count;
+  return this.save();
 };
 
 module.exports = mongoose.model("User", userSchema);

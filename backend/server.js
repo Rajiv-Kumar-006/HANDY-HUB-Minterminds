@@ -61,7 +61,7 @@ if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-// Connect to MongoDB
+// Connect to MongoDB 
 mongoose
   .connect(process.env.MONGODB_URI, {
     useNewUrlParser: true,
@@ -100,7 +100,7 @@ app.use("*", (req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found",
-  });
+  }); 
 });
 
 // Error handler

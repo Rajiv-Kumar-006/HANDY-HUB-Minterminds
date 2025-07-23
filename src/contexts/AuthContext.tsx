@@ -8,6 +8,7 @@ import React, {
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
+// Interfaces
 interface User {
   id: string;
   name: string;
@@ -42,6 +43,7 @@ interface AuthContextType {
   isLoading: boolean;
 }
 
+// Context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
@@ -52,11 +54,13 @@ export const useAuth = () => {
   return context;
 };
 
+// Axios instance
 const api = axios.create({
   baseURL: 'http://localhost:5000/api',
   withCredentials: true,
 });
 
+// Helpers
 const persistAuthData = (user: User, token: string) => {
   localStorage.setItem('token', token);
   localStorage.setItem('user', JSON.stringify(user));
@@ -65,9 +69,8 @@ const persistAuthData = (user: User, token: string) => {
 const extractError = (error: any) =>
   error?.response?.data?.message || 'Something went wrong';
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({
-  children,
-}) => {
+// Provider
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
@@ -89,8 +92,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     setIsLoading(true);
     try {
       const res = await api.post('/auth/login', { email, password });
-      persistAuthData(res.data.user, res.data.token);
-      setUser(res.data.user);
+      const userData: User = res.data.user;
+      persistAuthData(userData, res.data.token);
+      setUser(userData);
+
+      // Navigate based on role
+      switch (userData.role) {
+        case 'admin':
+          navigate('/admin/dashboard');
+          break;
+        case 'worker':
+          navigate('/worker/dashboard');
+          break;
+        default:
+          navigate('/dashboard');
+      }
     } catch (error: any) {
       throw new Error(extractError(error));
     } finally {
@@ -115,6 +131,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    navigate('/');
   };
 
   const sendOTP = async (email: string) => {

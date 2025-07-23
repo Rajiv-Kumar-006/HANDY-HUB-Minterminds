@@ -14,7 +14,7 @@ const {
   validateRegister,
   validateLogin,
   validateOTP,
-  validatePasswordReset
+  validatePasswordReset 
 } = require('../middleware/validation');
 
 const router = express.Router();

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  Search, 
-  Filter, 
-  Star, 
-  MapPin, 
+import {
+  Search,
+  Star,
+  MapPin,
   Clock,
   Home,
   Zap,
@@ -33,7 +32,7 @@ const ServicesPage: React.FC = () => {
     { id: 'painting', name: 'Painting', icon: PaintBucket },
     { id: 'automotive', name: 'Automotive', icon: Car },
   ];
-
+ 
   const services = [
     {
       id: 1,
@@ -117,13 +116,13 @@ const ServicesPage: React.FC = () => {
 
   const filteredServices = services.filter(service => {
     const matchesSearch = service.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         service.provider.toLowerCase().includes(searchTerm.toLowerCase());
+      service.provider.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'all' || service.category === selectedCategory;
     const matchesPrice = priceRange === 'all' ||
-                        (priceRange === 'low' && service.price < 75) ||
-                        (priceRange === 'medium' && service.price >= 75 && service.price <= 120) ||
-                        (priceRange === 'high' && service.price > 120);
-    
+      (priceRange === 'low' && service.price < 75) ||
+      (priceRange === 'medium' && service.price >= 75 && service.price <= 120) ||
+      (priceRange === 'high' && service.price > 120);
+
     return matchesSearch && matchesCategory && matchesPrice;
   });
 
@@ -230,17 +229,17 @@ const ServicesPage: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                
+
                 <h3 className="text-xl font-semibold text-gray-900 mb-2">{service.title}</h3>
                 <p className="text-gray-600 text-sm mb-3">{service.description}</p>
-                
+
                 <div className="flex items-center text-sm text-gray-500 mb-3">
                   <MapPin className="w-4 h-4 mr-1" />
                   <span className="mr-4">{service.location}</span>
                   <Clock className="w-4 h-4 mr-1" />
                   <span>{service.duration}</span>
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="text-2xl font-bold text-gray-900">${service.price}</span>
@@ -253,7 +252,7 @@ const ServicesPage: React.FC = () => {
                     Book Now
                   </Link>
                 </div>
-                
+
                 <div className="mt-3 pt-3 border-t border-gray-200">
                   <span className="text-sm text-gray-600">by {service.provider}</span>
                 </div>

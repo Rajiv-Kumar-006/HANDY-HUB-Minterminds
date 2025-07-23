@@ -1,3 +1,4 @@
+// src/pages/auth/LoginPage.tsx
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,10 +17,9 @@ const LoginPage: React.FC = () => {
     setError('');
 
     try {
-      await login(email, password);
-      navigate('/dashboard');
-    } catch (err) {
-      setError('Invalid email or password');
+      await login(email, password); // Navigation handled inside AuthContext based on role
+    } catch (err: any) {
+      setError(err.message || 'Invalid email or password');
     }
   };
 
@@ -113,7 +113,7 @@ const LoginPage: React.FC = () => {
 
           <div className="mt-6 text-center">
             <p className="text-gray-600">
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <Link to="/register" className="text-blue-600 hover:text-blue-500 font-medium">
                 Sign up
               </Link>

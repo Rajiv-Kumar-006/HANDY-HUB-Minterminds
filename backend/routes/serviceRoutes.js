@@ -1,64 +1,60 @@
 const express = require('express');
 const {
-  getAllServices,
-  getServiceById,
   createService,
+  getServices,
+  getServiceById,
   updateService,
   deleteService,
-  getServiceCategories,
-  updateServicePopularity
+  getCategories,
 } = require('../controllers/serviceController');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, optionalAuth } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 
 // Public routes
-router.get('/', getAllServices);
-router.get('/categories', getServiceCategories);
-router.get('/:id', getServiceById);
+router.get('/', optionalAuth, getServices);
+router.get('/:id', optionalAuth, getServiceById);
 
-// Protected routes (require authentication)
-router.use(protect);
-
-// Update service popularity (for booking tracking)
-router.put('/:id/popularity', updateServicePopularity);
-
-// Admin only routes
-router.use(authorize('admin'));
-
-router.post('/', createService);
-router.put('/:id', updateService);
-router.delete('/:id', deleteService);
+// Admin-only routes
+router.post('/', protect, authorize('admin'), upload.single('image'), createService);
+router.put('/:id', protect, authorize('admin'), upload.single('image'), updateService);
+router.delete('/:id', protect, authorize('admin'), deleteService);
+router.get('/categories', protect, authorize('admin'), getCategories);
 
 module.exports = router;
 
 
-
-
-
-
-
 // const express = require('express');
 // const {
-//   getServices,
-//   getService,
+//   getAllServices,
+//   getServiceById,
+//   createService,
+//   updateService,
+//   deleteService,
 //   getServiceCategories,
-//   getPopularServices,
-//   searchServices
+//   updateServicePopularity
 // } = require('../controllers/serviceController');
-// const {
-//   validateObjectId,
-//   validatePagination
-// } = require('../middleware/validation');
+// const { protect, authorize } = require('../middleware/auth');
 
 // const router = express.Router();
 
 // // Public routes
-// router.get('/', validatePagination, getServices);
+// router.get('/', getAllServices);
 // router.get('/categories', getServiceCategories);
-// router.get('/popular', getPopularServices);
-// router.get('/search', validatePagination, searchServices);
-// router.get('/:id', validateObjectId, getService);
+// router.get('/:id', getServiceById);
+
+// // Protected routes (require authentication)
+// router.use(protect);
+
+// // Update service popularity (for booking tracking)
+// router.put('/:id/popularity', updateServicePopularity);
+
+// // Admin only routes
+// router.use(authorize('admin'));
+
+// router.post('/', createService);
+// router.put('/:id', updateService);
+// router.delete('/:id', deleteService);
 
 // module.exports = router;
-

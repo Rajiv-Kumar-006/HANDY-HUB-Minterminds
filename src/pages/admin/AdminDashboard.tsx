@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { 
-  Users, 
-  Briefcase, 
-  DollarSign, 
+import {
+  Users,
+  Briefcase,
+  DollarSign,
   TrendingUp,
   Search,
   Filter,
@@ -11,10 +11,8 @@ import {
   Trash2,
   CheckCircle,
   XCircle,
-  AlertTriangle,
   Calendar,
   Star,
-  MapPin
 } from 'lucide-react';
 
 const AdminDashboard: React.FC = () => {
@@ -152,7 +150,7 @@ const AdminDashboard: React.FC = () => {
               purple: 'bg-purple-100 text-purple-600',
               orange: 'bg-orange-100 text-orange-600'
             };
-            
+
             return (
               <div key={index} className="bg-white rounded-xl shadow-lg p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -185,11 +183,10 @@ const AdminDashboard: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-3 rounded-lg font-medium transition-colors duration-200 ${
-                  activeTab === tab.id
-                    ? 'bg-blue-600 text-white shadow-lg'
-                    : 'bg-white text-gray-600 hover:bg-gray-50 shadow'
-                }`}
+                className={`px-6 py-3 rounded-lg font-medium transition-colors duration-200 ${activeTab === tab.id
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-white text-gray-600 hover:bg-gray-50 shadow'
+                  }`}
               >
                 {tab.label}
               </button>
@@ -312,9 +309,8 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          user.role === 'worker' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
-                        }`}>
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.role === 'worker' ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'
+                          }`}>
                           {user.role}
                         </span>
                       </td>
@@ -373,7 +369,7 @@ const AdminDashboard: React.FC = () => {
                           <p className="text-gray-600">{worker.email}</p>
                         </div>
                       </div>
-                      
+
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                           <p className="text-sm font-medium text-gray-700">Services Offered</p>
@@ -389,7 +385,7 @@ const AdminDashboard: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    
+
                     <div className="flex flex-col space-y-2 ml-6">
                       <button
                         onClick={() => handleApproveWorker(worker.id)}
@@ -477,7 +473,7 @@ const AdminDashboard: React.FC = () => {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
-                'House Cleaning', 'Plumbing', 'Electrical', 'Gardening', 
+                'House Cleaning', 'Plumbing', 'Electrical', 'Gardening',
                 'Cooking', 'Handyman', 'Painting', 'Automotive'
               ].map((service, index) => (
                 <div key={index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow duration-200">

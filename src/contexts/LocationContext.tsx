@@ -40,7 +40,7 @@ export const LocationProvider: React.FC<{ children: ReactNode }> = ({ children }
       });
 
       const { latitude, longitude } = position.coords;
-      
+
       // Mock reverse geocoding
       const mockLocation: Location = {
         lat: latitude,

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { 
-  Menu, 
-  X, 
-  Home, 
-  Settings, 
-  User, 
+import {
+  Menu,
+  X,
+  Home,
+  Settings,
+  User,
   LogOut,
   Wrench,
   Shield,
@@ -49,22 +49,22 @@ const Navbar: React.FC = () => {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
             >
               Home
             </Link>
-            <Link 
-              to="/services" 
+            <Link
+              to="/services"
               className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
             >
               Services
             </Link>
-            
+
             {!user && (
-              <Link 
-                to="/worker/apply" 
+              <Link
+                to="/worker/apply"
                 className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
               >
                 Become a Worker
@@ -96,8 +96,8 @@ const Navbar: React.FC = () => {
                       onClick={() => setIsMenuOpen(false)}
                     >
                       {user.role === 'admin' ? <Shield className="w-4 h-4 mr-2" /> :
-                       user.role === 'worker' ? <Wrench className="w-4 h-4 mr-2" /> :
-                       <Home className="w-4 h-4 mr-2" />}
+                        user.role === 'worker' ? <Wrench className="w-4 h-4 mr-2" /> :
+                          <Home className="w-4 h-4 mr-2" />}
                       Dashboard
                     </Link>
                     <Link
@@ -151,21 +151,21 @@ const Navbar: React.FC = () => {
         {isMenuOpen && (
           <div className="md:hidden border-t border-gray-200 py-4">
             <div className="space-y-4">
-              <Link 
-                to="/" 
+              <Link
+                to="/"
                 className="block text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
                 onClick={() => setIsMenuOpen(false)}
               >
                 Home
               </Link>
-              <Link 
-                to="/services" 
+              <Link
+                to="/services"
                 className="block text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
                 onClick={() => setIsMenuOpen(false)}
               >
                 Services
               </Link>
-              
+
               {user ? (
                 <>
                   <Link
