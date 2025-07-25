@@ -1,47 +1,54 @@
-const express = require('express');
-const {
-  getAdminDashboard,
-  getAllUsers,
-  getPendingWorkers,
-  updateWorkerStatus,
-  getAllBookings,
-  getAllServices,
-  createService,
-  updateService,
-  deleteService,
-  toggleUserStatus
-} = require('../controllers/adminController');
-const { protect, authorize } = require('../middleware/auth');
-const {
-  validateService,
-  validateObjectId,
-  validatePagination
-} = require('../middleware/validation');
-
+const express = require("express");
 const router = express.Router();
+const adminController = require("../controllers/adminController");
+const { protect, restrictTo } = require("../middleware/auth");
 
-// All routes are protected and admin-only
+// All routes below require admin authentication
 router.use(protect);
-router.use(authorize('admin'));
+router.use(restrictTo("admin"));
 
-// Dashboard
-router.get('/dashboard', getAdminDashboard);
+// ─── DASHBOARD ───────────────────────────────────────────────
+// GET /api/admin/dashboard
+router.get("/dashboard", adminController.getAdminDashboard);
 
-// Users management
-router.get('/users', validatePagination, getAllUsers);
-router.put('/users/:id/status', validateObjectId, toggleUserStatus);
+//  ─── USERS ───────────────────────────────────────────────────
+// GET /api/admin/users
+router.get("/users", adminController.getAllUsers);
+// PUT /api/admin/users/:id/status (activate/deactivate)
+router.put("/users/:id/status", adminController.toggleUserStatus);
+// ─── WORKER APPLICATIONS ─────────────────────────────────────
+// GET /api/admin/worker-applications
+router.get("/worker-applications", adminController.getAllWorkerApplications);
+// PATCH /api/admin/worker-applications/:id/approve
+router.patch(
+  "/worker-applications/:id/approve",
+  adminController.approveWorkerApplication
+);
+// PATCH /api/admin/worker-applications/:id/reject
+router.patch(
+  "/worker-applications/:id/reject",
+  adminController.rejectWorkerApplication
+);
 
-// Workers management
-router.get('/workers/pending', validatePagination, getPendingWorkers);
-router.put('/workers/:id/status', validateObjectId, updateWorkerStatus);
+// ─── WORKERS ─────────────────────────────────────────────────
+// GET /api/admin/workers/pending
+router.get("/workers/pending", adminController.getPendingWorkers);
+// PUT /api/admin/workers/:id/status (approve/reject)
+router.put("/workers/:id/status", adminController.updateWorkerStatus);
+// ── BOOKINGS ────────────────────────────────────────────────
+// GET /api/admin/bookings
+router.get("/bookings", adminController.getAllBookings);
 
-// Bookings management
-router.get('/bookings', validatePagination, getAllBookings);
+// ─── SERVICES ────────────────────────────────────────────────
+// GET /api/admin/services
+router.get("/services", adminController.getAllServices);
+// POST /api/admin/services
+router.post("/services", adminController.createService);
+// PUT /api/admin/services/:id
+router.put("/services/:id", adminController.updateService);
+// DELETE /api/admin/services/:id
+router.delete("/services/:id", adminController.deleteService);
 
-// Services management
-router.get('/services', validatePagination, getAllServices);
-router.post('/services', validateService, createService);
-router.put('/services/:id', validateObjectId, validateService, updateService);
-router.delete('/services/:id', validateObjectId, deleteService);
+
 
 module.exports = router;

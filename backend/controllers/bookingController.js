@@ -5,6 +5,7 @@ const Service = require("../models/Service");
 const AppError = require("../utils/appError");
 const emailService = require("../services/emailService");
 
+
 // Create a new booking
 exports.createBooking = async (req, res, next) => {
   try {
@@ -21,10 +22,15 @@ exports.createBooking = async (req, res, next) => {
       return next(new AppError("Missing required fields", 400));
     }
 
+    // Validate serviceId format
+    if (!Booking.isValidId(serviceId)) {
+      return next(new AppError("Invalid service ID", 400));
+    }
+
     // Validate service
     const service = await Service.findById(serviceId);
-    if (!service) {
-      return next(new AppError("Service not found", 404));
+    if (!service || !service.isActive) {
+      return next(new AppError("Service not found or inactive", 404));
     }
 
     // Validate worker
@@ -33,8 +39,8 @@ exports.createBooking = async (req, res, next) => {
       return next(new AppError("No available worker for this service", 404));
     }
 
-    // Calculate end time (assuming duration from service)
-    const duration = service.duration || 2; // Default 2 hours
+    // Calculate end time
+    const duration = service.duration.min || 2; // Default 2 hours
     const startTime = scheduledTime;
     const startDateTime = new Date(`${scheduledDate}T${startTime}:00`);
     const endDateTime = new Date(startDateTime.getTime() + duration * 60 * 60 * 1000);
@@ -48,10 +54,11 @@ exports.createBooking = async (req, res, next) => {
       scheduledTime: { start: startTime, end: endTime },
       location,
       pricing: {
-        basePrice: service.price,
-        totalAmount: service.price, // Add additionalCharges logic if needed
+        basePrice: service.basePrice.min,
+        totalAmount: service.basePrice.min, // Add additionalCharges logic if needed
       },
       notes: { customer: notes || "" },
+      image: service.image || null,
     };
 
     if (req.user) {
@@ -67,6 +74,9 @@ exports.createBooking = async (req, res, next) => {
 
     const booking = await Booking.create(bookingData);
 
+    // Increment service popularity
+    await Service.findByIdAndUpdate(serviceId, { $inc: { popularity: 1 } });
+
     // Send confirmation email
     const recipient = req.user ? req.user.email : guestInfo.email;
     const recipientName = req.user ? req.user.name : guestInfo.name;
@@ -75,7 +85,7 @@ exports.createBooking = async (req, res, next) => {
       recipientName,
       booking.bookingCode,
       service.title,
-      worker.name,
+      service.provider,
       scheduledDate,
       startTime
     );
@@ -85,7 +95,7 @@ exports.createBooking = async (req, res, next) => {
       data: {
         bookingCode: booking.bookingCode,
         service: service.title,
-        provider: worker.name,
+        provider: service.provider,
         scheduledDate: booking.scheduledDate,
         scheduledTime: booking.scheduledTime.start,
         totalAmount: booking.pricing.totalAmount,
@@ -104,8 +114,7 @@ exports.getUserBookings = async (req, res, next) => {
     }
 
     const bookings = await Booking.find({ "customer.user": req.user._id })
-      .populate("service", "title")
-      .populate("worker", "name")
+      .populate("service", "title provider image")
       .sort({ scheduledDate: -1 });
 
     res.status(200).json({
@@ -114,7 +123,7 @@ exports.getUserBookings = async (req, res, next) => {
       data: bookings.map((booking) => ({
         id: booking._id,
         service: booking.service.title,
-        provider: booking.worker.name,
+        provider: booking.service.provider,
         date: booking.scheduledDate,
         time: booking.scheduledTime.start,
         status: booking.status,
@@ -146,8 +155,7 @@ exports.getAllBookings = async (req, res, next) => {
     }
 
     const bookings = await Booking.find(query)
-      .populate("service", "title")
-      .populate("worker", "name")
+      .populate("service", "title provider")
       .populate("customer.user", "name email")
       .sort({ createdAt: -1 });
 
@@ -160,7 +168,7 @@ exports.getAllBookings = async (req, res, next) => {
         customer: booking.customer.user
           ? booking.customer.user.name
           : booking.customer.guestInfo.name,
-        worker: booking.worker.name,
+        worker: booking.service.provider,
         date: booking.scheduledDate,
         time: booking.scheduledTime.start,
         status: booking.status,
@@ -175,7 +183,7 @@ exports.getAllBookings = async (req, res, next) => {
 // Cancel a booking
 exports.cancelBooking = async (req, res, next) => {
   try {
-    const booking = await Booking.findById(req.params.id);
+    const booking = await Booking.findById(req.params.id).populate("service");
     if (!booking) {
       return next(new AppError("Booking not found", 404));
     }
@@ -236,7 +244,7 @@ exports.submitReview = async (req, res, next) => {
       return next(new AppError("Valid rating (1-5) is required", 400));
     }
 
-    const booking = await Booking.findById(req.params.id);
+    const booking = await Booking.findById(req.params.id).populate("service");
     if (!booking) {
       return next(new AppError("Booking not found", 404));
     }
@@ -259,6 +267,15 @@ exports.submitReview = async (req, res, next) => {
       reviewDate: new Date(),
     };
     await booking.save();
+
+    // Update service rating
+    const service = await Service.findById(booking.service._id);
+    if (service) {
+      const totalRating = service.averageRating * service.totalReviews + rating;
+      service.totalReviews += 1;
+      service.averageRating = totalRating / service.totalReviews;
+      await service.save();
+    }
 
     // Update worker's rating
     const worker = await Worker.findById(booking.worker);

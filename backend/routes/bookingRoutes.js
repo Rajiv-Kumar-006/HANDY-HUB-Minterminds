@@ -9,56 +9,106 @@ const {
   updateBooking,
 } = require("../controllers/bookingController");
 const { protect, authorize, optionalAuth } = require("../middleware/auth");
+const { validateObjectId } = require("../middleware/validation");
 
-router
-  .route("/")
-  .post(optionalAuth, createBooking)
-  .get(protect, authorize("admin"), getAllBookings);
+// Worker-specific bookings
+router.get("/worker", protect, authorize("worker"), async (req, res, next) => {
+  try {
+    const bookings = await require("../models/Booking")
+      .find({ worker: req.user._id })
+      .populate("service", "title provider")
+      .populate("customer.user", "name email")
+      .sort({ scheduledDate: -1 });
 
-router.route("/me").get(protect, getUserBookings);
+    res.status(200).json({
+      success: true,
+      count: bookings.length,
+      data: bookings.map((booking) => ({
+        id: booking._id,
+        service: booking.service.title,
+        customer: booking.customer.user
+          ? booking.customer.user.name
+          : booking.customer.guestInfo.name,
+        date: booking.scheduledDate,
+        time: booking.scheduledTime.start,
+        status: booking.status,
+        amount: booking.pricing.totalAmount,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
-router.route("/:id/cancel").put(protect, cancelBooking);
-
-router.route("/:id/review").post(protect, submitReview);
-
-router.route("/:id").put(protect, authorize("admin"), updateBooking);
+// Booking routes
+router.post("/", optionalAuth, createBooking);
+router.get("/", protect, authorize("admin"), getAllBookings);
+router.get("/me", protect, getUserBookings);
+router.put("/:id/cancel", protect, validateObjectId("id"), cancelBooking);
+router.post("/:id/review", protect, validateObjectId("id"), submitReview);
+router.put(
+  "/:id",
+  protect,
+  authorize("admin"),
+  validateObjectId("id"),
+  updateBooking
+);
 
 module.exports = router;
 
-
-
-// const express = require('express');
+// const express = require("express");
+// const router = express.Router();
 // const {
 //   createBooking,
-//   getMyBookings,
-//   getWorkerBookings,
-//   getBooking,
-//   updateBookingStatus,
-//   addReview,
-//   getBookingByCode
-// } = require('../controllers/bookingController');
-// const { protect, authorize, optionalAuth } = require('../middleware/auth');
-// const {
-//   validateBooking,
-//   validateReview,
-//   validateStatusUpdate,
-//   validateObjectId,
-//   validatePagination
-// } = require('../middleware/validation');
+//   getUserBookings,
+//   getAllBookings,
+//   cancelBooking,
+//   submitReview,
+//   updateBooking,
+// } = require("../controllers/bookingController");
+// const { protect, authorize, optionalAuth } = require("../middleware/auth");
+// const { validateObjectId } = require("../middleware/validation");
 
-// const router = express.Router();
+// // Worker bookings route
+// router.get("/worker", protect, authorize("worker"), async (req, res, next) => {
+//   try {
+//     const bookings = await require("../models/Booking")
+//       .find({ worker: req.user._id })
+//       .populate("service", "title provider")
+//       .populate("customer.user", "name email")
+//       .sort({ scheduledDate: -1 });
 
-// // Public routes
-// router.get('/code/:code', getBookingByCode);
+//     res.status(200).json({
+//       success: true,
+//       count: bookings.length,
+//       data: bookings.map((booking) => ({
+//         id: booking._id,
+//         service: booking.service.title,
+//         customer: booking.customer.user
+//           ? booking.customer.user.name
+//           : booking.customer.guestInfo.name,
+//         date: booking.scheduledDate,
+//         time: booking.scheduledTime.start,
+//         status: booking.status,
+//         amount: booking.pricing.totalAmount,
+//       })),
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// });
 
-// // Routes that allow both authenticated and guest users
-// router.post('/', optionalAuth, validateBooking, createBooking);
+// // Booking routes
+// router .route("/").post(optionalAuth, createBooking).get(protect, authorize("admin"), getAllBookings);
 
-// // Protected routes
-// router.get('/my-bookings', protect, validatePagination, getMyBookings);
-// router.get('/worker-bookings', protect, authorize('worker'), validatePagination, getWorkerBookings);
-// router.get('/:id', protect, validateObjectId, getBooking);
-// router.put('/:id/status', protect, validateObjectId, validateStatusUpdate, updateBookingStatus);
-// router.post('/:id/review', protect, authorize('user'), validateObjectId, validateReview, addReview);
+// router.route("/me").get(protect, getUserBookings);
+
+// router.route("/:id/cancel").put(protect, validateObjectId("id"), cancelBooking);
+
+// router.route("/:id/review").post(protect, validateObjectId("id"), submitReview);
+
+// router
+//   .route("/:id")
+//   .put(protect, authorize("admin"), validateObjectId("id"), updateBooking);
 
 // module.exports = router;

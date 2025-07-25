@@ -1,5 +1,4 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const cors = require("cors");
 const helmet = require("helmet");
 const compression = require("compression");
@@ -18,6 +17,10 @@ const bookingRoutes = require("./routes/bookingRoutes");
 // Import middleware
 const errorHandler = require("./middleware/errorHandler");
 
+// Import DB connection
+const connectDB = require("./config/db");
+
+// Initialize express
 const app = express();
 
 // Apply security headers
@@ -61,21 +64,8 @@ if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-// Connect to MongoDB 
-mongoose
-  .connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => {
-    console.log("✅ Connected to MongoDB");
-    // Create admin user if it doesn't exist
-    require("./utils/createAdmin")();
-  })
-  .catch((error) => {
-    console.error("❌ MongoDB connection error:", error);
-    process.exit(1);
-  });
+// Connect to MongoDB
+connectDB();
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -100,7 +90,7 @@ app.use("*", (req, res) => {
   res.status(404).json({
     success: false,
     message: "Route not found",
-  }); 
+  });
 });
 
 // Error handler

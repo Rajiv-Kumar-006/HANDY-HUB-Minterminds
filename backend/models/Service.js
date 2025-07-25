@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 
 const serviceSchema = new mongoose.Schema(
   {
+    name: {
+      type: String,
+      required: [true, "Service name is required"],
+      maxlength: [100, "Name cannot exceed 100 characters"],
+      trim: true,
+    },
     title: {
       type: String,
       required: [true, "Service title is required"],
@@ -33,26 +39,29 @@ const serviceSchema = new mongoose.Schema(
       required: [true, "Provider name is required"],
       trim: true,
     },
-    rating: {
-      type: Number,
-      default: 0,
-      min: [0, "Rating cannot be less than 0"],
-      max: [5, "Rating cannot be more than 5"],
-    },
-    reviews: {
-      type: Number,
-      default: 0,
-      min: [0, "Reviews cannot be negative"],
-    },
-    price: {
-      type: Number,
-      required: [true, "Price is required"],
-      min: [0, "Price cannot be negative"],
+    basePrice: {
+      min: {
+        type: Number,
+        required: [true, "Minimum price is required"],
+        min: [0, "Price cannot be negative"],
+      },
+      max: {
+        type: Number,
+        required: [true, "Maximum price is required"],
+        min: [0, "Price cannot be negative"],
+      },
     },
     duration: {
-      type: String,
-      required: [true, "Duration is required"],
-      trim: true,
+      min: {
+        type: Number,
+        required: [true, "Minimum duration is required"],
+        min: [0, "Duration cannot be negative"],
+      },
+      max: {
+        type: Number,
+        required: [true, "Maximum duration is required"],
+        min: [0, "Duration cannot be negative"],
+      },
     },
     location: {
       type: String,
@@ -64,99 +73,50 @@ const serviceSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    icon: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    requirements: {
+      type: [String],
+      default: [],
+    },
+    includes: {
+      type: [String],
+      default: [],
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    popularity: {
+      type: Number,
+      default: 0,
+      min: [0, "Popularity cannot be negative"],
+    },
+    averageRating: {
+      type: Number,
+      default: 0,
+      min: [0, "Rating cannot be less than 0"],
+      max: [5, "Rating cannot be more than 5"],
+    },
+    totalReviews: {
+      type: Number,
+      default: 0,
+      min: [0, "Reviews cannot be negative"],
+    },
   },
   {
     timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
+// Indexes for efficient queries
+serviceSchema.index({ category: 1 });
+serviceSchema.index({ title: "text", provider: "text" });
+serviceSchema.index({ isActive: 1 });
+
 module.exports = mongoose.model("Service", serviceSchema);
-
-
-// const mongoose = require("mongoose");
-
-// const serviceSchema = new mongoose.Schema(
-//   {
-//     name: {
-//       type: String,
-//       required: [true, "Service name is required"],
-//       trim: true,
-//       unique: true,
-//     },
-//     title: {
-//       type: String,
-//       required: [true, "Service title is required"],
-//       maxlength: [100, "Title cannot exceed 100 characters"],
-//     },
-//     description: {
-//       type: String,
-//       required: [true, "Service description is required"],
-//       maxlength: [500, "Description cannot exceed 500 characters"],
-//     },
-//     category: {
-//       type: String,
-//       required: [true, "Service category is required"],
-//       enum: ["cleaning", "cooking", "laundry"],
-//     },
-//     icon: {
-//       type: String,
-//       default: "wrench",
-//     },
-//     basePrice: {
-//       min: {
-//         type: Number,
-//         required: true,
-//         min: 0,
-//       },
-//       max: {
-//         type: Number,
-//         required: true,
-//         min: 0,
-//       },
-//     },
-//     duration: {
-//       min: {
-//         type: Number, 
-//         required: true,
-//         min: 30,
-//       },
-//       max: {
-//         type: Number, 
-//         required: true,
-//         min: 30,
-//       },
-//     },
-//     requirements: [String],
-//     includes: [String],
-//     isActive: {
-//       type: Boolean,
-//       default: true,
-//     },
-//     popularity: {
-//       type: Number,
-//       default: 0,
-//     },
-//     averageRating: {
-//       type: Number,
-//       default: 0,
-//       min: 0,
-//       max: 5,
-//     },
-//     totalReviews: {
-//       type: Number,
-//       default: 0,
-//     },
-//   },
-//   {
-//     timestamps: true,
-//   }
-// ); 
-
-// // Update popularity based on bookings
-// serviceSchema.methods.updatePopularity = function () {
-//   // This would be called when a new booking is made
-//   this.popularity += 1;
-//   return this.save();
-// };
-
-// module.exports = mongoose.model("Service", serviceSchema);

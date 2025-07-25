@@ -1,9 +1,10 @@
-const User = require('../models/User');
-const Worker = require('../models/Worker');
-const Booking = require('../models/Booking');
-const Service = require('../models/Service');
-const { validationResult } = require('express-validator');
-const emailService = require('../services/emailService');
+const User = require("../models/User");
+const Worker = require("../models/Worker");
+const Booking = require("../models/Booking");
+const Service = require("../models/Service");
+const { validationResult } = require("express-validator");
+const emailService = require("../services/emailService");
+const AppError = require("../utils/appError");
 
 // @desc    Get admin dashboard stats
 // @route   GET /api/admin/dashboard
@@ -11,19 +12,21 @@ const emailService = require('../services/emailService');
 exports.getAdminDashboard = async (req, res) => {
   try {
     // Get basic counts
-    const totalUsers = await User.countDocuments({ role: 'user' });
+    const totalUsers = await User.countDocuments({ role: "user" });
     const totalWorkers = await Worker.countDocuments();
     const totalBookings = await Booking.countDocuments();
     const totalServices = await Service.countDocuments();
 
     // Get pending worker applications
-    const pendingWorkers = await Worker.countDocuments({ applicationStatus: 'pending' });
+    const pendingWorkers = await Worker.countDocuments({
+      applicationStatus: "pending",
+    });
 
     // Get recent bookings
     const recentBookings = await Booking.find()
-      .populate('service', 'name')
-      .populate('worker', 'user')
-      .populate('customer.user', 'name email')
+      .populate("service", "name")
+      .populate("worker", "user")
+      .populate("customer.user", "name email")
       .sort({ createdAt: -1 })
       .limit(10);
 
@@ -33,43 +36,43 @@ exports.getAdminDashboard = async (req, res) => {
     thisMonth.setHours(0, 0, 0, 0);
 
     const monthlyBookings = await Booking.countDocuments({
-      createdAt: { $gte: thisMonth }
+      createdAt: { $gte: thisMonth },
     });
 
     const monthlyRevenue = await Booking.aggregate([
       {
         $match: {
-          status: 'completed',
-          createdAt: { $gte: thisMonth }
-        }
+          status: "completed",
+          createdAt: { $gte: thisMonth },
+        },
       },
       {
         $group: {
           _id: null,
-          total: { $sum: '$pricing.totalAmount' }
-        }
-      }
+          total: { $sum: "$pricing.totalAmount" },
+        },
+      },
     ]);
 
     // Get top services
     const topServices = await Booking.aggregate([
       {
         $group: {
-          _id: '$service',
-          count: { $sum: 1 }
-        }
+          _id: "$service",
+          count: { $sum: 1 },
+        },
       },
       {
         $lookup: {
-          from: 'services',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'service'
-        }
+          from: "services",
+          localField: "_id",
+          foreignField: "_id",
+          as: "service",
+        },
       },
-      { $unwind: '$service' },
+      { $unwind: "$service" },
       { $sort: { count: -1 } },
-      { $limit: 5 }
+      { $limit: 5 },
     ]);
 
     const stats = {
@@ -80,20 +83,19 @@ exports.getAdminDashboard = async (req, res) => {
       pendingWorkers,
       monthlyBookings,
       monthlyRevenue: monthlyRevenue[0]?.total || 0,
-      topServices
+      topServices,
     };
 
     res.status(200).json({
       success: true,
       stats,
-      recentBookings
+      recentBookings,
     });
-
   } catch (error) {
-    console.error('Get admin dashboard error:', error);
+    console.error("Get admin dashboard error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching dashboard data'
+      message: "Server error while fetching dashboard data",
     });
   }
 };
@@ -108,25 +110,25 @@ exports.getAllUsers = async (req, res) => {
     let query = {};
 
     // Filter by role
-    if (role && role !== 'all') {
+    if (role && role !== "all") {
       query.role = role;
     }
 
     // Filter by status
-    if (status && status !== 'all') {
-      query.isActive = status === 'active';
+    if (status && status !== "all") {
+      query.isActive = status === "active";
     }
 
     // Search functionality
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
       ];
     }
 
     const users = await User.find(query)
-      .select('-password')
+      .select("-password")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -140,15 +142,14 @@ exports.getAllUsers = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
-
   } catch (error) {
-    console.error('Get all users error:', error);
+    console.error("Get all users error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching users'
+      message: "Server error while fetching users",
     });
   }
 };
@@ -160,13 +161,13 @@ exports.getPendingWorkers = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
 
-    const workers = await Worker.find({ applicationStatus: 'pending' })
-      .populate('user', 'name email phone createdAt')
+    const workers = await Worker.find({ applicationStatus: "pending" })
+      .populate("user", "name email phone createdAt")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
 
-    const total = await Worker.countDocuments({ applicationStatus: 'pending' });
+    const total = await Worker.countDocuments({ applicationStatus: "pending" });
 
     res.status(200).json({
       success: true,
@@ -175,15 +176,14 @@ exports.getPendingWorkers = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
-
   } catch (error) {
-    console.error('Get pending workers error:', error);
+    console.error("Get pending workers error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching pending workers'
+      message: "Server error while fetching pending workers",
     });
   }
 };
@@ -196,19 +196,19 @@ exports.updateWorkerStatus = async (req, res) => {
     const { status, notes } = req.body;
     const workerId = req.params.id;
 
-    if (!['approved', 'rejected'].includes(status)) {
+    if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Status must be either approved or rejected'
+        message: "Status must be either approved or rejected",
       });
     }
 
-    const worker = await Worker.findById(workerId).populate('user');
+    const worker = await Worker.findById(workerId).populate("user");
 
     if (!worker) {
       return res.status(404).json({
         success: false,
-        message: 'Worker not found'
+        message: "Worker not found",
       });
     }
 
@@ -217,16 +217,16 @@ exports.updateWorkerStatus = async (req, res) => {
     worker.approvedBy = req.user.id;
     worker.approvedAt = new Date();
 
-    if (status === 'approved') {
+    if (status === "approved") {
       worker.isVerified = true;
       // Update user role to worker
-      await User.findByIdAndUpdate(worker.user._id, { role: 'worker' });
+      await User.findByIdAndUpdate(worker.user._id, { role: "worker" });
     }
 
     await worker.save();
 
     // Send notification email
-    if (status === 'approved') {
+    if (status === "approved") {
       await emailService.sendWorkerApprovalEmail(
         worker.user.email,
         worker.user.name
@@ -242,14 +242,13 @@ exports.updateWorkerStatus = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Worker application ${status} successfully`,
-      worker
+      worker,
     });
-
   } catch (error) {
-    console.error('Update worker status error:', error);
+    console.error("Update worker status error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating worker status'
+      message: "Server error while updating worker status",
     });
   }
 };
@@ -264,19 +263,19 @@ exports.getAllBookings = async (req, res) => {
     let query = {};
 
     // Filter by status
-    if (status && status !== 'all') {
+    if (status && status !== "all") {
       query.status = status;
     }
 
     // Search functionality
     if (search) {
-      query.bookingCode = { $regex: search, $options: 'i' };
+      query.bookingCode = { $regex: search, $options: "i" };
     }
 
     const bookings = await Booking.find(query)
-      .populate('service', 'name')
-      .populate('worker', 'user')
-      .populate('customer.user', 'name email')
+      .populate("service", "name")
+      .populate("worker", "user")
+      .populate("customer.user", "name email")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -290,15 +289,14 @@ exports.getAllBookings = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
-
   } catch (error) {
-    console.error('Get all bookings error:', error);
+    console.error("Get all bookings error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching bookings'
+      message: "Server error while fetching bookings",
     });
   }
 };
@@ -313,13 +311,13 @@ exports.getAllServices = async (req, res) => {
     let query = {};
 
     // Filter by category
-    if (category && category !== 'all') {
+    if (category && category !== "all") {
       query.category = category;
     }
 
     // Search functionality
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      query.name = { $regex: search, $options: "i" };
     }
 
     const services = await Service.find(query)
@@ -336,15 +334,14 @@ exports.getAllServices = async (req, res) => {
         page: parseInt(page),
         limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / limit)
-      }
+        pages: Math.ceil(total / limit),
+      },
     });
-
   } catch (error) {
-    console.error('Get all services error:', error);
+    console.error("Get all services error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while fetching services'
+      message: "Server error while fetching services",
     });
   }
 };
@@ -358,8 +355,8 @@ exports.createService = async (req, res) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation errors',
-        errors: errors.array()
+        message: "Validation errors",
+        errors: errors.array(),
       });
     }
 
@@ -367,15 +364,14 @@ exports.createService = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Service created successfully',
-      service
+      message: "Service created successfully",
+      service,
     });
-
   } catch (error) {
-    console.error('Create service error:', error);
+    console.error("Create service error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while creating service'
+      message: "Server error while creating service",
     });
   }
 };
@@ -385,30 +381,28 @@ exports.createService = async (req, res) => {
 // @access  Private (Admin only)
 exports.updateService = async (req, res) => {
   try {
-    const service = await Service.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const service = await Service.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
 
     if (!service) {
       return res.status(404).json({
         success: false,
-        message: 'Service not found'
+        message: "Service not found",
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Service updated successfully',
-      service
+      message: "Service updated successfully",
+      service,
     });
-
   } catch (error) {
-    console.error('Update service error:', error);
+    console.error("Update service error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating service'
+      message: "Server error while updating service",
     });
   }
 };
@@ -423,20 +417,20 @@ exports.deleteService = async (req, res) => {
     if (!service) {
       return res.status(404).json({
         success: false,
-        message: 'Service not found'
+        message: "Service not found",
       });
     }
 
     // Check if service has active bookings
     const activeBookings = await Booking.countDocuments({
       service: req.params.id,
-      status: { $in: ['pending', 'confirmed', 'in-progress'] }
+      status: { $in: ["pending", "confirmed", "in-progress"] },
     });
 
     if (activeBookings > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete service with active bookings'
+        message: "Cannot delete service with active bookings",
       });
     }
 
@@ -444,14 +438,13 @@ exports.deleteService = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Service deleted successfully'
+      message: "Service deleted successfully",
     });
-
   } catch (error) {
-    console.error('Delete service error:', error);
+    console.error("Delete service error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while deleting service'
+      message: "Server error while deleting service",
     });
   }
 };
@@ -466,7 +459,7 @@ exports.toggleUserStatus = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -474,7 +467,7 @@ exports.toggleUserStatus = async (req, res) => {
     if (user._id.toString() === req.user.id) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot deactivate your own account'
+        message: "Cannot deactivate your own account",
       });
     }
 
@@ -483,21 +476,83 @@ exports.toggleUserStatus = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `User ${user.isActive ? 'activated' : 'deactivated'} successfully`,
+      message: `User ${
+        user.isActive ? "activated" : "deactivated"
+      } successfully`,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
-        isActive: user.isActive
-      }
+        isActive: user.isActive,
+      },
     });
-
   } catch (error) {
-    console.error('Toggle user status error:', error);
+    console.error("Toggle user status error:", error);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating user status'
+      message: "Server error while updating user status",
     });
+  }
+};
+
+// 1. Get all worker applications (for Admin dashboard)
+exports.getAllWorkerApplications = async (req, res, next) => {
+  try {
+    const applications = await WorkerApplication.find().populate(
+      "user",
+      "name email role"
+    );
+    res.status(200).json({ success: true, applications });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 2. Approve a worker application
+exports.approveWorkerApplication = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const application = await WorkerApplication.findById(id);
+    if (!application) return next(new AppError("Application not found", 404));
+    if (application.status !== "pending")
+      return next(
+        new AppError(`Application already ${application.status}`, 400)
+      );
+
+    application.status = "approved";
+    await application.save();
+
+    // Update user role
+    await User.findByIdAndUpdate(application.user, { role: "worker" });
+
+    res.status(200).json({
+      success: true,
+      message: "Application approved and user role updated",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// 3. Reject a worker application
+exports.rejectWorkerApplication = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const application = await WorkerApplication.findById(id);
+    if (!application) return next(new AppError("Application not found", 404));
+    if (application.status !== "pending")
+      return next(
+        new AppError(`Application already ${application.status}`, 400)
+      );
+
+    application.status = "rejected";
+    await application.save();
+
+    res.status(200).json({ success: true, message: "Application rejected" });
+  } catch (error) {
+    next(error);
   }
 };
 
