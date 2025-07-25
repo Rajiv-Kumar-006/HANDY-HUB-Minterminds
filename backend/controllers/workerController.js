@@ -1,9 +1,11 @@
 const Worker = require("../models/Worker");
+const User = require("../models/User");
 const AppError = require("../utils/appError");
 const cloudinary = require("cloudinary").v2;
 const { Readable } = require("stream");
+const { body, validationResult } = require("express-validator");
 
-// Configure Cloudinary (ensure environment variables are set)
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -31,53 +33,98 @@ const uploadToCloudinary = (file) => {
   });
 };
 
+// Input validation for submitApplication
+const validateApplication = [
+  body("firstName").trim().notEmpty().withMessage("First name is required"),
+  body("lastName").trim().notEmpty().withMessage("Last name is required"),
+  body("email").isEmail().withMessage("Valid email is required"),
+  body("phone")
+    .matches(/^\+?[\d\s-]{10,}$/)
+    .withMessage("Valid phone number is required"),
+  body("address").trim().notEmpty().withMessage("Address is required"),
+  body("services")
+    .isArray({ min: 1 })
+    .withMessage("At least one service is required"),
+  body("experience")
+    .isIn(["0-1", "1-3", "3-5", "5-10", "10+"])
+    .withMessage("Valid experience is required"),
+  body("hourlyRate")
+    .isFloat({ min: 10, max: 200 })
+    .withMessage("Hourly rate must be between 10 and 200"),
+  body("availability")
+    .isArray({ min: 1 })
+    .withMessage("At least one availability slot is required"),
+  body("bio")
+    .trim()
+    .isLength({ min: 10, max: 500 })
+    .withMessage("Bio must be 50-500 characters"),
+];
+
 // Submit new worker application
-exports.submitApplication = async (req, res, next) => {
-  try {
-    const user = req.user;
-    if (user.role !== "worker") {
-      return next(new AppError("Only workers can submit applications", 403));
+exports.submitApplication = [
+  ...validateApplication,
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return next(
+          new AppError(
+            errors
+              .array()
+              .map((err) => err.msg)
+              .join(", "),
+            400
+          )
+        );
+      }
+
+      const user = req.user;
+      if (user.role !== "user") {
+        return next(new AppError("Only users can submit applications", 403));
+      }
+
+      const existingApplication = await Worker.findOne({ user: user._id });
+      if (existingApplication) {
+        return next(
+          new AppError("You have already submitted an application", 400)
+        );
+      }
+
+      const applicationData = {
+        user: user._id,
+        firstName: req.body.firstName,
+        lastName: req.body.lastName,
+        email: req.body.email,
+        phone: req.body.phone,
+        address: req.body.address,
+        services: req.body.services,
+        experience: req.body.experience,
+        hourlyRate: parseFloat(req.body.hourlyRate),
+        availability: req.body.availability,
+        bio: req.body.bio,
+        backgroundCheck: {
+          hasConvictions: req.body.hasConvictions || false,
+          convictionDetails: req.body.convictionDetails || "",
+        },
+      };
+
+      const worker = await Worker.create(applicationData);
+
+      res.status(201).json({
+        success: true,
+        data: worker,
+      });
+    } catch (error) {
+      next(error);
     }
-
-    const existingApplication = await Worker.findOne({ user: user._id });
-    if (existingApplication) {
-      return next(new AppError("You have already submitted an application", 400));
-    }
-
-    const applicationData = {
-      user: user._id,
-      firstName: req.body.firstName,
-      lastName: req.body.lastName,
-      email: req.body.email,
-      phone: req.body.phone,
-      address: req.body.address,
-      services: req.body.services,
-      experience: req.body.experience,
-      hourlyRate: parseFloat(req.body.hourlyRate),
-      availability: req.body.availability,
-      bio: req.body.bio,
-      backgroundCheck: {
-        hasConvictions: req.body.hasConvictions || false,
-        convictionDetails: req.body.convictionDetails || "",
-      },
-    };
-
-    const worker = await Worker.create(applicationData);
-
-    res.status(201).json({
-      success: true,
-      data: worker,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  },
+];
 
 // Upload documents
 exports.uploadDocument = async (req, res, next) => {
   try {
-    if (!req.file) {
-      return next(new AppError("No file uploaded", 400));
+    if (!req.files || req.files.length === 0) {
+      return next(new AppError("No files uploaded", 400));
     }
 
     const user = req.user;
@@ -91,20 +138,22 @@ exports.uploadDocument = async (req, res, next) => {
       return next(new AppError("Invalid document type", 400));
     }
 
-    const uploadedFile = await uploadToCloudinary(req.file);
+    if (documentType === "idDocument" && req.files.length > 1) {
+      return next(new AppError("Only one ID document allowed", 400));
+    }
+
+    const uploadedFiles = await Promise.all(
+      req.files.map((file) => uploadToCloudinary(file))
+    );
 
     if (documentType === "idDocument") {
-      worker.documents.idDocument = {
-        url: uploadedFile.url,
-        publicId: uploadedFile.publicId,
-        originalName: uploadedFile.originalName,
-      };
+      worker.documents.idDocument = uploadedFiles[0];
     } else {
-      worker.documents.certifications.push({
-        name: uploadedFile.originalName.split(".")[0],
-        url: uploadedFile.url,
-        publicId: uploadedFile.publicId,
-        originalName: uploadedFile.originalName,
+      uploadedFiles.forEach((file) => {
+        worker.documents.certifications.push({
+          name: file.originalName.split(".")[0],
+          ...file,
+        });
       });
     }
 
@@ -112,11 +161,8 @@ exports.uploadDocument = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: "Document uploaded successfully",
-      data: {
-        url: uploadedFile.url,
-        originalName: uploadedFile.originalName,
-      },
+      message: "Documents uploaded successfully",
+      data: uploadedFiles,
     });
   } catch (error) {
     next(error);
@@ -134,7 +180,9 @@ exports.submitForReview = async (req, res, next) => {
     }
 
     if (!worker.documents.idDocument) {
-      return next(new AppError("ID document is required before submission", 400));
+      return next(
+        new AppError("ID document is required before submission", 400)
+      );
     }
 
     await worker.submitApplication();
@@ -153,7 +201,10 @@ exports.submitForReview = async (req, res, next) => {
 exports.getMyApplication = async (req, res, next) => {
   try {
     const user = req.user;
-    const worker = await Worker.findOne({ user: user._id }).populate("user", "name email role");
+    const worker = await Worker.findOne({ user: user._id }).populate(
+      "user",
+      "name email role"
+    );
 
     if (!worker) {
       return next(new AppError("Worker application not found", 404));
@@ -169,55 +220,110 @@ exports.getMyApplication = async (req, res, next) => {
 };
 
 // Update worker application
-exports.updateApplication = async (req, res, next) => {
-  try {
-    const user = req.user;
-    const worker = await Worker.findOne({ user: user._id });
-
-    if (!worker) {
-      return next(new AppError("Worker application not found", 404));
-    }
-
-    if (worker.applicationStatus === "approved") {
-      return next(new AppError("Cannot update approved application", 400));
-    }
-
-    const updatableFields = [
-      "firstName",
-      "lastName",
-      "email",
-      "phone",
-      "address",
-      "services",
-      "experience",
-      "hourlyRate",
-      "availability",
-      "bio",
-      "backgroundCheck.hasConvictions",
-      "backgroundCheck.convictionDetails",
-    ];
-
-    Object.keys(req.body).forEach((key) => {
-      if (updatableFields.includes(key)) {
-        if (key.includes(".")) {
-          const [parent, child] = key.split(".");
-          worker[parent][child] = req.body[key];
-        } else {
-          worker[key] = req.body[key];
-        }
+exports.updateApplication = [
+  ...validateApplication,
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return next(
+          new AppError(
+            errors
+              .array()
+              .map((err) => err.msg)
+              .join(", "),
+            400
+          )
+        );
       }
-    });
 
-    if (req.body.hourlyRate) {
-      worker.hourlyRate = parseFloat(req.body.hourlyRate);
+      const user = req.user;
+      const worker = await Worker.findOne({ user: user._id });
+
+      if (!worker) {
+        return next(new AppError("Worker application not found", 404));
+      }
+
+      if (worker.applicationStatus === "approved") {
+        return next(new AppError("Cannot update approved application", 400));
+      }
+
+      const updatableFields = [
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "address",
+        "services",
+        "experience",
+        "hourlyRate",
+        "availability",
+        "bio",
+        "backgroundCheck.hasConvictions",
+        "backgroundCheck.convictionDetails",
+      ];
+
+      Object.keys(req.body).forEach((key) => {
+        if (updatableFields.includes(key)) {
+          if (key.includes(".")) {
+            const [parent, child] = key.split(".");
+            worker[parent][child] = req.body[key];
+          } else {
+            worker[key] = req.body[key];
+          }
+        }
+      });
+
+      if (req.body.hourlyRate) {
+        worker.hourlyRate = parseFloat(req.body.hourlyRate);
+      }
+
+      await worker.save();
+
+      res.status(200).json({
+        success: true,
+        message: "Application updated successfully",
+        data: worker,
+      });
+    } catch (error) {
+      next(error);
     }
+  },
+];
 
-    await worker.save();
-
+// Get worker stats
+exports.getWorkerStats = async (req, res, next) => {
+  try {
+    const worker = await Worker.findOne({ user: req.user._id }).select(
+      "stats rating"
+    );
+    if (!worker) {
+      return next(new AppError("Worker not found", 404));
+    }
     res.status(200).json({
       success: true,
-      message: "Application updated successfully",
-      data: worker,
+      data: {
+        totalEarnings: worker.stats.totalEarnings,
+        completedJobs: worker.stats.completedBookings,
+        averageRating: worker.rating.average,
+        responseRate: worker.stats.responseRate,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get worker bookings
+exports.getMyBookings = async (req, res, next) => {
+  try {
+    const bookings = await Booking.find({ worker: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(10);
+    res.status(200).json({
+      success: true,
+      count: bookings.length,
+      data: bookings,
     });
   } catch (error) {
     next(error);
@@ -267,7 +373,9 @@ exports.approveApplication = async (req, res, next) => {
     }
 
     if (worker.applicationStatus !== "pending") {
-      return next(new AppError("Only pending applications can be approved", 400));
+      return next(
+        new AppError("Only pending applications can be approved", 400)
+      );
     }
 
     worker.applicationStatus = "approved";
@@ -277,7 +385,6 @@ exports.approveApplication = async (req, res, next) => {
 
     await worker.save();
 
-    // Update user role to worker
     const user = await User.findById(worker.user);
     if (user && user.role !== "worker") {
       user.role = "worker";
@@ -304,11 +411,14 @@ exports.rejectApplication = async (req, res, next) => {
     }
 
     if (worker.applicationStatus !== "pending") {
-      return next(new AppError("Only pending applications can be rejected", 400));
+      return next(
+        new AppError("Only pending applications can be rejected", 400)
+      );
     }
 
     worker.applicationStatus = "rejected";
-    worker.rejectionReason = rejectionReason || "Application did not meet requirements";
+    worker.rejectionReason =
+      rejectionReason || "Application did not meet requirements";
     await worker.save();
 
     res.status(200).json({
@@ -329,7 +439,6 @@ exports.deleteApplication = async (req, res, next) => {
       return next(new AppError("Worker application not found", 404));
     }
 
-    // Delete associated documents from Cloudinary
     if (worker.documents.idDocument?.publicId) {
       await cloudinary.uploader.destroy(worker.documents.idDocument.publicId);
     }

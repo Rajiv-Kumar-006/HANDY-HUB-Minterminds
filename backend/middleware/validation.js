@@ -119,10 +119,6 @@ exports.validateWorkerApplication = [
   body("availability")
     .isArray({ min: 1 })
     .withMessage("At least one availability slot must be selected"),
-  body("bio")
-    .trim()
-    .isLength({ min: 50, max: 500 })
-    .withMessage("Bio must be between 50 and 500 characters"),
   body("hasConvictions")
     .optional()
     .isBoolean()
